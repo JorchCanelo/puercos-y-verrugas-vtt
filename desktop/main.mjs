@@ -9,6 +9,9 @@ const here = dirname(fileURLToPath(import.meta.url));
 const packaged = existsSync(join(here, "app", "server", "index.js"));
 const serverEntry = packaged ? join(here, "app", "server", "index.js") : join(here, "..", "server", "dist", "index.js");
 const clientDir = packaged ? join(here, "app", "client") : join(here, "..", "client", "dist");
+// Datos: sin empaquetar (npm run desktop) se usan los mismos que `npm run play` (server/data), así se ve la misma mesa.
+// Instalada (npm run dist) no hay carpeta server/, así que van a %APPDATA%\Puercos y Verrugas VTT\data.
+const dataDir = packaged ? join(app.getPath("userData"), "data") : join(here, "..", "server", "data");
 
 if (!app.requestSingleInstanceLock()) app.quit();
 
@@ -21,7 +24,7 @@ async function boot() {
   }
   const { start } = await import(pathToFileURL(serverEntry).href);
   running = await start({
-    dataDir: join(app.getPath("userData"), "data"),
+    dataDir,
     clientDir: existsSync(clientDir) ? clientDir : null,
   });
   win = new BrowserWindow({
