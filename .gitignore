@@ -1,0 +1,15 @@
+data/
+node_modules/
+dist/
+release/
+desktop/app/
+*.log
+.env
+*.tsbuildinfo
+CLAUDE.md
+# Módulos de sistema de juego: cada uno es su propio repositorio (ver modules/README.md).
+modules/*
+!modules/README.md
+# Generados por scripts/modules.mjs
+server/src/modules.generated.ts
+client/src/systems/modules.generated.ts

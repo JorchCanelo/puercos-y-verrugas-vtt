@@ -1,0 +1,41 @@
+{
+  "name": "@pyv/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "main.mjs",
+  "description": "Puercos y Verrugas VTT",
+  "author": "Puercos y Verrugas VTT",
+  "scripts": {
+    "start": "electron .",
+    "prepare:app": "node scripts/prepare.mjs",
+    "dist": "node scripts/prepare.mjs && electron-builder --win"
+  },
+  "dependencies": {
+    "@fastify/multipart": "^9.0.0",
+    "@fastify/static": "^10.1.8",
+    "cookie": "^1.0.0",
+    "fastify": "^5.0.0",
+    "socket.io": "^4.8.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "electron": "^39.0.0",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "local.puercos-y-verrugas-vtt",
+    "productName": "Puercos y Verrugas VTT",
+    "directories": {
+      "output": "../release"
+    },
+    "asar": false,
+    "files": [
+      "main.mjs",
+      "app/**"
+    ],
+    "win": {
+      "target": "nsis"
+    }
+  }
+}

@@ -1,0 +1,56 @@
+@import "tailwindcss";
+/* Clases usadas por la interfaz de los módulos de sistema de juego (modules/ está fuera del cliente y en .gitignore). */
+@source "../../modules";
+
+@theme {
+  --color-night: #0d1020;
+  --color-panel: #151a2f;
+  --color-panel-2: #1c2240;
+  --color-line: #2c3358;
+  --color-ink: #ebe6d6;
+  --color-muted: #9aa1bd;
+  --color-gold: #d6ac52;
+  --color-gold-dim: #8f7436;
+  --color-danger: #d4574f;
+  --color-ok: #58b27a;
+  --font-display: "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: radial-gradient(1200px 600px at 70% -10%, #1b2250 0%, transparent 60%), var(--color-night);
+  color: var(--color-ink);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+
+h1,
+h2,
+h3 {
+  font-family: var(--font-display);
+  letter-spacing: 0.01em;
+}
+
+/* Scrollbars discretas */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line) transparent;
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-gold);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}

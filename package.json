@@ -1,0 +1,39 @@
+{
+  "name": "puercos-y-verrugas-vtt",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "workspaces": [
+    "shared",
+    "server",
+    "client",
+    "modules/*"
+  ],
+  "scripts": {
+    "modules": "node scripts/modules.mjs",
+    "postinstall": "node scripts/modules.mjs",
+    "predev": "node scripts/modules.mjs",
+    "dev": "concurrently -n server,client -c blue,green \"npm run dev -w server\" \"npm run dev -w client\"",
+    "pretest": "node scripts/modules.mjs",
+    "test": "npm run test --workspaces --if-present",
+    "pretypecheck": "node scripts/modules.mjs",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "prebuild": "node scripts/modules.mjs",
+    "build": "npm run build -w client && npm run build -w server",
+    "desktop": "npm run build && npm run desktop:install && npm run start --prefix desktop",
+    "dist": "npm run build && npm run desktop:install && npm run dist --prefix desktop",
+    "desktop:install": "npm install --prefix desktop",
+    "play": "npm run build && npm run start -w server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0",
+    "typescript": "^5.6.0"
+  },
+  "engines": {
+    "node": ">=22.5"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "esbuild@0.25.12": true
+  }
+}
