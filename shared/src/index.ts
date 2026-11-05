@@ -9,3 +9,4 @@ export * from "./music";
 export * from "./permissions";
 export * from "./schemas";
 export * from "./events";
+export * from "./modules";

@@ -5,16 +5,21 @@
 //   - tiene "pyv": { "id": "<id-del-sistema>" }
 //   - exporta "." con `export const system: GameSystem` y "./ui" con `export const ui: SystemUi`.
 // Los archivos generados están en .gitignore: el VTT base compila igual sin ningún módulo.
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { extractCandidates } from "./lib/candidates.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const modulesDir = join(root, "modules");
-const ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/; // = MODULE_ID_RE de shared/src/modules.ts
+
+// --base: compilar sin los módulos de modules/ (lo usa `npm run dist`: el instalador lleva solo el VTT base;
+// los módulos se instalan después como .pyvmod). El siguiente dev/build/play los vuelve a incluir.
+const baseOnly = process.argv.includes("--base");
 
 const found = [];
-if (existsSync(modulesDir)) {
+if (!baseOnly && existsSync(modulesDir)) {
   for (const entry of readdirSync(modulesDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
     const pkgFile = join(modulesDir, entry.name, "package.json");
@@ -62,53 +67,33 @@ const client =
 
 // Tailwind no escanea carpetas que git ignora (modules/* lo está), así que sus clases se le pasan explícitamente
 // con `@source inline(...)`: se extraen las palabras con forma de clase de los .ts/.tsx de cada módulo.
-// Tailwind descarta las que no son clases; sobrar no cuesta nada, faltar deja estilos sin generar.
-function listSources(dir) {
-  const out = [];
-  if (!existsSync(dir)) return out;
-  for (const name of readdirSync(dir)) {
-    if (name === "node_modules" || name.startsWith(".")) continue;
-    const full = join(dir, name);
-    if (statSync(full).isDirectory()) out.push(...listSources(full));
-    else if (/\.(tsx?|jsx?)$/.test(name)) out.push(full);
-  }
-  return out;
-}
-// Forma de clase de Tailwind: empieza en minúscula (o "-", "!", "@", "*") y sin espacios ni comillas.
-const CANDIDATE = /^[-!@*]?[a-z][a-z0-9:/\[\]().%#_,=+!-]*$/;
-// Paréntesis y corchetes desparejados (trozos de código como "(1-2" o "a[j]]") rompen el análisis de @source inline.
-function balanced(word) {
-  const stack = [];
-  for (const ch of word) {
-    if (ch === "(" || ch === "[") stack.push(ch === "(" ? ")" : "]");
-    else if (ch === ")" || ch === "]") if (stack.pop() !== ch) return false;
-  }
-  return stack.length === 0 && !/[,.:]$/.test(word);
-}
-const candidates = new Set();
-for (const m of found) {
-  for (const file of listSources(join(modulesDir, m.dir, "src"))) {
-    const code = readFileSync(file, "utf8");
-    // Como el extractor de Tailwind: trocear todo el archivo por espacios, comillas, llaves y signos de JSX.
-    for (const word of code.split(/[\s"'`{}<>;]+/)) {
-      if (word.length > 1 && word.length <= 80 && CANDIDATE.test(word) && balanced(word)) candidates.add(word);
-    }
-  }
-}
+const candidates = extractCandidates(found.map((m) => join(modulesDir, m.dir, "src")));
 const css =
   banner("Clases de Tailwind usadas por los módulos (modules/ está en .gitignore y Tailwind no lo escanea).").replace(/^\/\//gm, "/*").replace(/\n/g, " */\n") +
-  (candidates.size ? `@source inline("${[...candidates].sort().join(" ")}");\n` : "");
+  (candidates.length ? `@source inline("${candidates.join(" ")}");\n` : "");
+
+// Para los módulos empaquetados (.pyvmod), el servidor compila al arrancar una hoja de estilos con las clases del
+// VTT y las de los paquetes (server/src/moduleCss.ts). Necesita el tema y las clases del cliente, que en la versión
+// instalada ya no está como código fuente: se guardan aquí y van dentro del servidor compilado.
+const indexCss = readFileSync(join(root, "client", "src", "index.css"), "utf8");
+const theme = /@theme\s*\{[\s\S]*?\n\}/.exec(indexCss)?.[0] ?? "";
+const hostCandidates = extractCandidates([join(root, "client", "src"), ...found.map((m) => join(modulesDir, m.dir, "src"))]);
+const hostStyles =
+  banner("Tema y clases de Tailwind del cliente (y de los módulos de modules/), para los estilos de los paquetes .pyvmod.") +
+  `export const HOST_THEME = ${JSON.stringify(theme)};\n` +
+  `export const HOST_CANDIDATES: readonly string[] = ${JSON.stringify(hostCandidates)};\n`;
 
 let changed = 0;
 for (const [file, content] of [
   [join(root, "server", "src", "modules.generated.ts"), server],
   [join(root, "client", "src", "systems", "modules.generated.ts"), client],
   [join(root, "client", "src", "modules.generated.css"), css],
+  [join(root, "server", "src", "host-styles.generated.ts"), hostStyles],
 ]) {
   // Solo escribir si cambia: así Vite y tsx no recargan sin motivo.
   if (existsSync(file) && readFileSync(file, "utf8") === content) continue;
   writeFileSync(file, content);
   changed++;
 }
-const list = found.length ? found.map((m) => `${m.id} (modules/${m.dir})`).join(", ") : "ninguno";
+const list = baseOnly ? "ninguno (compilación base, sin modules/)" : found.length ? found.map((m) => `${m.id} (modules/${m.dir})`).join(", ") : "ninguno";
 console.log(`[módulos] Sistemas de juego instalados: ${list}${changed ? "" : " (sin cambios)"}`);

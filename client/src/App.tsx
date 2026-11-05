@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { admin, ApiError, post } from "./api";
 import { connectSocket, disconnectSocket } from "./socket";
 import { useStore } from "./store";
+import { loadPackedModules } from "./systems/runtime";
 import { Toasts } from "./ui";
 import AdminView from "./views/Admin";
 import LoginView from "./views/Login";
@@ -16,6 +17,8 @@ type Mode = "checking" | "admin" | "login" | "mesa";
  */
 export default function App() {
   const [mode, setMode] = useState<Mode>("checking");
+  // Interfaces de los módulos empaquetados (.pyvmod): se cargan al entrar a la mesa, antes de mostrarla.
+  const [modulesReady, setModulesReady] = useState(false);
   const snap = useStore((s) => s.snap);
   const refresh = useStore((s) => s.refresh);
 
@@ -50,7 +53,9 @@ export default function App() {
   }, [snap, mode]);
 
   useEffect(() => {
-    if (mode === "mesa") connectSocket();
+    if (mode !== "mesa") return;
+    connectSocket();
+    void loadPackedModules().then(() => setModulesReady(true));
   }, [mode]);
 
   const logout = async () => {
@@ -71,7 +76,8 @@ export default function App() {
           }}
         />
       )}
-      {mode === "mesa" && snap && <MesaView onLogout={logout} />}
+      {mode === "mesa" && snap && !modulesReady && <p className="p-8 text-center text-muted">Cargando…</p>}
+      {mode === "mesa" && snap && modulesReady && <MesaView onLogout={logout} />}
       <Toasts />
     </>
   );

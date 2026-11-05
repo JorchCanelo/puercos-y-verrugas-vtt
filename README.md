@@ -44,6 +44,17 @@ npm run desktop
 
 ## Módulos de sistema de juego
 Un módulo aporta las reglas de un juego: hoja, creación de personajes, movimientos, progreso, catálogo…
+
+### Instalar un módulo empaquetado (.pyvmod)
+Funciona en todas las versiones, también en la **instalada** (sin Node ni código):
+1. En el panel del anfitrión, sección **Módulos de sistema de juego**, pulsa **«Instalar módulo…»** y elige el archivo `.pyvmod`.
+   (También puedes copiarlo a mano a la carpeta `modulos/` de tus datos: `server/data/modulos/` con `npm run play`,
+   `%APPDATA%\Puercos y Verrugas VTT\data\modulos\` en la versión instalada. El panel muestra la ruta.)
+2. **Reinicia el VTT** (cierra y abre la app, o vuelve a ejecutar `npm run play`). Los módulos se cargan al arrancar.
+
+Para actualizarlo, instala la versión nueva (sustituye a la anterior) y reinicia. Para quitarlo, «Quitar» y reinicia.
+
+### Instalar un módulo como código fuente (para desarrollarlo)
 Cada módulo es su propio repositorio y se clona dentro de `modules/`:
 
 ```bash
@@ -56,7 +67,7 @@ npm run play
 
 Al arrancar, la consola muestra `[módulos] Sistemas de juego instalados: …` y el panel del anfitrión ya permite elegirlo.
 Si quitas un módulo, las Partidas que lo usaban siguen abriendo, pero sus personajes quedan en **solo lectura** (sin perder datos).
-Cómo escribir uno: [`modules/README.md`](modules/README.md).
+Cómo escribir uno y cómo empaquetarlo como `.pyvmod` (`npm run pack-module -- <carpeta>`): [`modules/README.md`](modules/README.md).
 
 > Un módulo es código que se ejecuta en tu PC y en el navegador de los jugadores: instala solo módulos de quien confíes.
 
@@ -70,7 +81,8 @@ Cómo escribir uno: [`modules/README.md`](modules/README.md).
 | `npm run modules` | Vuelve a detectar los módulos de `modules/` (también se hace solo al instalar, compilar, probar y arrancar) |
 | `npm run build` | Compila cliente (Vite) y servidor (esbuild) |
 | `npm run desktop` | Compila, instala `desktop/` por separado y abre la app de escritorio (ver [App de escritorio](#app-de-escritorio-windows)) |
-| `npm run dist` | Instalador de Windows (NSIS) en `release/` |
+| `npm run dist` | Instalador de Windows (NSIS) en `release/`, **solo con el VTT base**: los módulos de `modules/` no van dentro (se instalan después como `.pyvmod`) |
+| `npm run pack-module -- <carpeta>` | Empaqueta `modules/<carpeta>` como `release/modulos/<id>-<versión>.pyvmod` para instalarlo desde el panel |
 
 ## Arquitectura
 - `shared/`: interfaz de sistema de juego (`GameSystem`), sistema genérico, permisos, esquemas zod y tipos compartidos.

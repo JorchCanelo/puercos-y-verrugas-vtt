@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { DEFAULT_SYSTEM_ID, type PartidaDto, type SistemaInfoDto } from "@pyv/shared";
+import { DEFAULT_SYSTEM_ID, type ModuloDto, type ModuloEstado, type ModulosDto, type PartidaDto, type SistemaInfoDto } from "@pyv/shared";
 import { admin, type NetworkInfo } from "../api";
 import { run, useStore } from "../store";
 import { Button, Card, ConfirmButton, Empty, Field, Input, Select, Textarea, cx } from "../ui";
@@ -51,6 +51,8 @@ export default function AdminView() {
           <PartidaCard key={p.id} p={p} sistemas={sistemas} onChange={load} onEnter={() => void enter(p)} />
         ))}
       </section>
+
+      <ModulesCard />
 
       <ShareCard red={red} onChange={setRed} />
     </main>
@@ -168,6 +170,107 @@ function PartidaCard({ p, sistemas, onChange, onEnter }: { p: PartidaDto; sistem
             </ConfirmButton>
           </div>
         </div>
+      </div>
+    </Card>
+  );
+}
+
+const ESTADO: Record<ModuloEstado, { label: string; cls: string }> = {
+  cargado: { label: "Activo", cls: "bg-ok/20 text-ok" },
+  pendiente: { label: "Se activará al reiniciar", cls: "bg-gold/15 text-gold" },
+  actualizar: { label: "Se actualizará al reiniciar", cls: "bg-gold/15 text-gold" },
+  quitar: { label: "Se quitará al reiniciar", cls: "bg-gold/15 text-gold" },
+  incompatible: { label: "Incompatible", cls: "bg-danger/15 text-danger" },
+  duplicado: { label: "Duplicado", cls: "bg-panel-2 text-muted" },
+  error: { label: "Error", cls: "bg-danger/15 text-danger" },
+};
+
+/** Módulos de sistema de juego: los de modules/ (código fuente) y los paquetes .pyvmod, que se instalan aquí. */
+function ModulesCard() {
+  const [info, setInfo] = useState<ModulosDto | null>(null);
+  const [busy, setBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const toast = useStore((s) => s.toast);
+  useEffect(() => void run(() => admin.modulos()).then((r) => r && setInfo(r)), []);
+  if (!info) return null;
+
+  const install = async (f: File) => {
+    setBusy(true);
+    const r = await run(() => admin.instalarModulo(f));
+    setBusy(false);
+    if (r) {
+      setInfo(r);
+      toast("Módulo instalado: reinicia el VTT para activarlo", "ok");
+    }
+  };
+  const remove = async (m: ModuloDto) => {
+    const r = m.archivo && (await run(() => admin.quitarModulo(m.archivo as string)));
+    if (r) setInfo(r);
+  };
+
+  return (
+    <Card title="Módulos de sistema de juego">
+      <div className="space-y-3 text-sm">
+        <p className="text-muted">
+          Un módulo añade las reglas de un juego (hoja de personaje, creación, tiradas…). Se instalan como archivos <code>.pyvmod</code>;
+          también puedes copiarlos a mano a la carpeta <code className="break-all">{info.carpeta}</code>.
+        </p>
+        {info.reinicioPendiente && (
+          <p className="rounded-md bg-gold/15 px-3 py-2 text-gold">
+            Hay cambios pendientes: cierra y vuelve a abrir el VTT (o reinicia <code>npm run play</code>) para aplicarlos. Hazlo cuando no haya nadie jugando.
+          </p>
+        )}
+        {info.modulos.length === 0 ? (
+          <Empty>No hay módulos instalados: solo está el sistema genérico (hoja libre).</Empty>
+        ) : (
+          <ul className="space-y-2">
+            {info.modulos.map((m) => {
+              const e = ESTADO[m.estado];
+              return (
+                <li key={`${m.origen}:${m.archivo ?? m.id}:${m.estado}`} className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-line bg-night/40 p-2.5">
+                  <div className="min-w-0 space-y-0.5">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="font-semibold">{m.nombre}</span>
+                      {m.version && <span className="text-xs text-muted">v{m.version}</span>}
+                      <span className={cx("rounded-full px-2 py-0.5 text-xs", e.cls)}>{e.label}</span>
+                    </div>
+                    {m.detalle && <p className="text-xs text-muted">{m.detalle}</p>}
+                    {m.archivo && <p className="break-all text-xs text-muted/80">{m.archivo}</p>}
+                  </div>
+                  {m.origen === "paquete" && m.archivo && m.estado !== "quitar" && (
+                    <ConfirmButton
+                      small
+                      variant="ghost"
+                      message="¿Quitar? Sus Partidas quedarán en solo lectura"
+                      onConfirm={() => void remove(m)}
+                    >
+                      Quitar
+                    </ConfirmButton>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <Button disabled={busy} onClick={() => fileRef.current?.click()}>
+            {busy ? "Instalando…" : "Instalar módulo…"}
+          </Button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".pyvmod"
+            hidden
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (f) void install(f);
+            }}
+          />
+        </div>
+        <p className="text-xs text-muted">
+          Un módulo es código que se ejecuta en tu computadora y en el navegador de tus jugadores: instala solo módulos de quien confíes.
+        </p>
       </div>
     </Card>
   );
