@@ -4,11 +4,12 @@ import { rm } from "node:fs/promises";
 import { networkInterfaces } from "node:os";
 import { join } from "node:path";
 import fastifyMultipart from "@fastify/multipart";
+import fastifyStatic from "@fastify/static";
 import type { FastifyInstance } from "fastify";
 import { CreatePartidaBody, PatchPartidaBody } from "@pyv/shared";
 import type { HostTokens } from "./auth";
 import type { Ctx } from "./ctx";
-import { badRequest, conflict, forbidden } from "./errors";
+import { badRequest, conflict, forbidden, notFound } from "./errors";
 import { idParam, installErrors, installSecurity } from "./http";
 import { registerClient } from "./app";
 import * as svc from "./services";
@@ -34,6 +35,8 @@ export function registerAdminApp(app: FastifyInstance, ctx: Ctx, deps: AdminDeps
   installSecurity(app);
   installErrors(app);
   void app.register(fastifyMultipart, { limits: { files: 1, fields: 5, fileSize: 20 * 1024 * 1024 } });
+  // Solo decora reply.sendFile() para la imagen de las Partidas (ver GET /admin-api/partidas/:id/imagen).
+  void app.register(fastifyStatic, { root: join(ctx.dataDir, "partidas"), serve: false });
 
   const hosts = new Set([`127.0.0.1:${deps.adminPort}`, `localhost:${deps.adminPort}`]);
   const origins = new Set(deps.devOrigins ?? []);
@@ -78,6 +81,14 @@ export function registerAdminApp(app: FastifyInstance, ctx: Ctx, deps: AdminDeps
     if (!part) throw badRequest("Falta el archivo");
     const { archivo } = await saveUpload(part.file, { dataDir: ctx.dataDir, partidaId: id, allowed: ["imagen"], maxBytes: { imagen: 10 * 1024 * 1024 } });
     return svc.patchPartida(ctx, id, { imagen: archivo });
+  });
+
+  // Imagen de la Partida para el panel: abierta o cerrada (la ruta pública /api/public/... solo sirve las abiertas
+  // y además no existe en este listener).
+  app.get("/admin-api/partidas/:id/imagen", (req, reply) => {
+    const row = ctx.db.prepare("SELECT id, imagen FROM partidas WHERE id = ?").get(idParam(req));
+    if (!row || !row.imagen) throw notFound();
+    return reply.header("Cache-Control", "no-cache").sendFile(`${String(row.id)}/archivos/${String(row.imagen)}`);
   });
 
   /** Entrar como Narrador anfitrión (sin contraseña): token de un solo uso que se canjea en el listener público. */
