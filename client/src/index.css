@@ -1,6 +1,7 @@
 @import "tailwindcss";
-/* Clases usadas por la interfaz de los módulos de sistema de juego (modules/ está fuera del cliente y en .gitignore). */
-@source "../../modules";
+/* Clases que usan los módulos de sistema de juego: Tailwind no escanea modules/ (está en .gitignore),
+   así que scripts/modules.mjs las genera en este archivo. */
+@import "./modules.generated.css";
 
 @theme {
   --color-night: #0d1020;

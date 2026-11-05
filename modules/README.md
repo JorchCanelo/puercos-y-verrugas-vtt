@@ -53,7 +53,9 @@ Carpeta `modules/<nombre>/` con un `package.json` así:
 - Reglas: las tiradas se resuelven en el servidor con el `Die` que recibe `moves.roll` (así se pueden probar).
   Los errores de reglas se lanzan con `RuleError` y le llegan al usuario como mensaje.
 - Las hojas se guardan como JSON. Al añadir campos, ponles `.default()` para no romper hojas existentes.
-- Estilos: Tailwind ya ve las clases de `modules/`. Los colores propios del sistema, mejor en línea (`style`).
+- Estilos: usa clases de Tailwind normales. Como `modules/` está en `.gitignore`, Tailwind no lo escanea: `scripts/modules.mjs`
+  extrae las clases de tus `.ts`/`.tsx` y las registra en `client/src/modules.generated.css`. Si añades clases nuevas,
+  vuelve a arrancar `npm run dev` (o `npm run modules`). Los colores propios del sistema, mejor en línea (`style`).
 
 `npm run modules` (y cada `install`, `dev`, `build`, `typecheck` y `test`) regenera
-`server/src/modules.generated.ts` y `client/src/systems/modules.generated.ts`. Esos archivos no se versionan.
+`server/src/modules.generated.ts`, `client/src/systems/modules.generated.ts` y `client/src/modules.generated.css`. Esos archivos no se versionan.

@@ -5,7 +5,7 @@
 //   - tiene "pyv": { "id": "<id-del-sistema>" }
 //   - exporta "." con `export const system: GameSystem` y "./ui" con `export const ui: SystemUi`.
 // Los archivos generados están en .gitignore: el VTT base compila igual sin ningún módulo.
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -60,10 +60,50 @@ const client =
   found.map((m, i) => `import { ui as u${i} } from "${m.name}/ui";\n`).join("") +
   `\nexport const MODULE_UIS: readonly SystemUi[] = [${found.map((_, i) => `u${i}`).join(", ")}];\n`;
 
+// Tailwind no escanea carpetas que git ignora (modules/* lo está), así que sus clases se le pasan explícitamente
+// con `@source inline(...)`: se extraen las palabras con forma de clase de los .ts/.tsx de cada módulo.
+// Tailwind descarta las que no son clases; sobrar no cuesta nada, faltar deja estilos sin generar.
+function listSources(dir) {
+  const out = [];
+  if (!existsSync(dir)) return out;
+  for (const name of readdirSync(dir)) {
+    if (name === "node_modules" || name.startsWith(".")) continue;
+    const full = join(dir, name);
+    if (statSync(full).isDirectory()) out.push(...listSources(full));
+    else if (/\.(tsx?|jsx?)$/.test(name)) out.push(full);
+  }
+  return out;
+}
+// Forma de clase de Tailwind: empieza en minúscula (o "-", "!", "@", "*") y sin espacios ni comillas.
+const CANDIDATE = /^[-!@*]?[a-z][a-z0-9:/\[\]().%#_,=+!-]*$/;
+// Paréntesis y corchetes desparejados (trozos de código como "(1-2" o "a[j]]") rompen el análisis de @source inline.
+function balanced(word) {
+  const stack = [];
+  for (const ch of word) {
+    if (ch === "(" || ch === "[") stack.push(ch === "(" ? ")" : "]");
+    else if (ch === ")" || ch === "]") if (stack.pop() !== ch) return false;
+  }
+  return stack.length === 0 && !/[,.:]$/.test(word);
+}
+const candidates = new Set();
+for (const m of found) {
+  for (const file of listSources(join(modulesDir, m.dir, "src"))) {
+    const code = readFileSync(file, "utf8");
+    // Como el extractor de Tailwind: trocear todo el archivo por espacios, comillas, llaves y signos de JSX.
+    for (const word of code.split(/[\s"'`{}<>;]+/)) {
+      if (word.length > 1 && word.length <= 80 && CANDIDATE.test(word) && balanced(word)) candidates.add(word);
+    }
+  }
+}
+const css =
+  banner("Clases de Tailwind usadas por los módulos (modules/ está en .gitignore y Tailwind no lo escanea).").replace(/^\/\//gm, "/*").replace(/\n/g, " */\n") +
+  (candidates.size ? `@source inline("${[...candidates].sort().join(" ")}");\n` : "");
+
 let changed = 0;
 for (const [file, content] of [
   [join(root, "server", "src", "modules.generated.ts"), server],
   [join(root, "client", "src", "systems", "modules.generated.ts"), client],
+  [join(root, "client", "src", "modules.generated.css"), css],
 ]) {
   // Solo escribir si cambia: así Vite y tsx no recargan sin motivo.
   if (existsSync(file) && readFileSync(file, "utf8") === content) continue;

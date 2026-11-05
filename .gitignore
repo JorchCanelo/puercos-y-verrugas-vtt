@@ -13,3 +13,4 @@ modules/*
 # Generados por scripts/modules.mjs
 server/src/modules.generated.ts
 client/src/systems/modules.generated.ts
+client/src/modules.generated.css
