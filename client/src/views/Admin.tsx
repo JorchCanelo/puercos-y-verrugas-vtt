@@ -119,7 +119,7 @@ function PartidaCard({ p, sistemas, onChange, onEnter }: { p: PartidaDto; sistem
           onClick={() => fileRef.current?.click()}
           aria-label="Cambiar imagen de la Partida"
         >
-          {p.imagen ? <img src={`/api/public/partidas/${p.id}/imagen?${p.imagen}`} alt="" className="h-full w-full object-cover" /> : "Añadir imagen"}
+          {p.imagen ? <img src={`/admin-api/partidas/${p.id}/imagen?${p.imagen}`} alt="" className="h-full w-full object-cover" /> : "Añadir imagen"}
         </button>
         <input
           ref={fileRef}

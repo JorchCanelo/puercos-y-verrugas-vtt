@@ -28,6 +28,20 @@ Ejecuta `npm run play` y comparte con tus jugadores:
 
 Cada vez que cambie el código o instales un módulo, vuelve a ejecutar `npm run play` para recompilar.
 
+## App de escritorio (Windows)
+En vez de la terminal y el navegador, puedes usar el VTT como una ventana de Windows (Electron) que arranca el servidor por sí misma:
+
+```bash
+npm run desktop
+```
+
+- La primera vez instala `desktop/` por separado (descarga Electron, unos 100 MB) y tarda un poco; después solo recompila y abre la ventana.
+- La ventana es el **panel del anfitrión** (lo mismo que http://127.0.0.1:3001). Desde ahí entras como Narrador y compartes los enlaces; los jugadores se conectan exactamente igual que con `npm run play` (puerto 3000 o túnel).
+- Usa **los mismos datos** que `npm run play` (`server/data/`): ves las mismas Partidas.
+- **No la abras a la vez que `npm run play`**: usan los mismos puertos y la misma base de datos. Cierra uno antes de abrir el otro.
+- Al cerrar la ventana se detiene el servidor y se desconecta a todos los jugadores.
+- Si la consola avisa de scripts sin aprobar tras cambiar la versión de Electron: `npm approve-scripts electron electron-winstaller --prefix desktop`.
+
 ## Módulos de sistema de juego
 Un módulo aporta las reglas de un juego: hoja, creación de personajes, movimientos, progreso, catálogo…
 Cada módulo es su propio repositorio y se clona dentro de `modules/`:
@@ -55,7 +69,7 @@ Cómo escribir uno: [`modules/README.md`](modules/README.md).
 | `npm run typecheck` | `tsc --noEmit` en shared, server, client y los módulos instalados |
 | `npm run modules` | Vuelve a detectar los módulos de `modules/` (también se hace solo al instalar, compilar, probar y arrancar) |
 | `npm run build` | Compila cliente (Vite) y servidor (esbuild) |
-| `npm run desktop` | Compila, instala `desktop/` por separado y abre la app Electron (Electron 39+ para tener `node:sqlite`) |
+| `npm run desktop` | Compila, instala `desktop/` por separado y abre la app de escritorio (ver [App de escritorio](#app-de-escritorio-windows)) |
 | `npm run dist` | Instalador de Windows (NSIS) en `release/` |
 
 ## Arquitectura
@@ -80,7 +94,9 @@ Cómo escribir uno: [`modules/README.md`](modules/README.md).
 
 ## Estado de verificación (honesto)
 - **Pruebas automáticas:** `shared` y la capa de servicios/autenticación/subidas del servidor (sobre node:sqlite, el mismo motor que usa el servidor), con un sistema de juego de prueba. El zoom/desplazamiento del tablero se probó en Chromium con ratón y toques simulados. La CI corre typecheck, pruebas y compilación en Windows y Linux.
+- **Probado a mano:** una sesión real con 2 Narradores y 3 jugadores (incluida la música sincronizada) y la app de escritorio (`npm run desktop`).
 - **Sin pruebas automáticas:** capa HTTP/Socket.IO, la mayor parte del cliente, Electron y el túnel de cloudflared.
+- **Nunca probado:** el túnel de cloudflared y el instalador (`npm run dist`).
 
 ## Versiones mínimas por seguridad
 Fijadas tras `npm audit` (los `^` en los `package.json` ya impiden bajar de estas):
@@ -89,6 +105,7 @@ Fijadas tras `npm audit` (los `^` en los `package.json` ya impiden bajar de esta
 | `zod` | 4.6.7 | Agotamiento de memoria al validar colecciones grandes (GHSA-mrhx-c7xc-m3w5) |
 | `esbuild` | 0.28.2 | El servidor de desarrollo aceptaba peticiones de cualquier sitio web (GHSA-67mh-4wv8-2f99) |
 | `@fastify/static` | 10.1.8 | Cuatro fallos de recorrido de rutas y evasión de protecciones |
+| `electron` (en `desktop/`) | 45 | Electron 39–42 ya no tienen soporte y acumulan fallos de seguridad. Los avisos moderados de `minimatch` dentro de `electron-builder` (solo se usan al compilar para macOS) se aceptan |
 
 Zod 4 aplica los `.default()` también dentro de `.optional()`, por eso los esquemas de edición parcial (PATCH) se construyen con `patchOf()` (`shared/src/patch.ts`).
 Ejecuta `npm audit` de vez en cuando; evita `npm audit fix --force`, que puede añadir dependencias al paquete equivocado.
