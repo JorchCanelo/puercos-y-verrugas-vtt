@@ -18,6 +18,7 @@ import {
   type CreatePjBody,
   type CreateUserBody,
   type EscenaBody,
+  type Acceso,
   type FichaDto,
   type ChatBody,
   type FreeRollBody,
@@ -165,7 +166,7 @@ export function deletePartida(ctx: Ctx, id: string): void {
 // ===========================================================================
 
 export function issueSession(ctx: Ctx, user: Row): { token: string; usuario: UsuarioDto } {
-  const token = signSession(ctx.secret, { u: String(user.id), p: String(user.partida_id), e: ctx.now() + SESSION_TTL_MS });
+  const token = signSession(ctx.secret, { u: String(user.id), p: String(user.partida_id), e: ctx.now() + SESSION_TTL_MS, g: Number(user.sesion_gen ?? 0) });
   return { token, usuario: usuarioDto(user) };
 }
 
@@ -199,6 +200,7 @@ export function authenticate(ctx: Ctx, token: string | undefined): ServerActor |
     .prepare("SELECT u.*, pa.activa AS partida_activa FROM usuarios u JOIN partidas pa ON pa.id = u.partida_id WHERE u.id = ? AND u.partida_id = ?")
     .get(p.u, p.p);
   if (!row || !bool(row.partida_activa)) return null;
+  if (Number(row.sesion_gen ?? 0) !== (p.g ?? 0)) return null; // le cambiaron la contraseña después de entrar
   return { id: String(row.id), rol: row.rol as ServerActor["rol"], partidaId: String(row.partida_id), nombre: String(row.nombre) };
 }
 
@@ -228,7 +230,22 @@ export function deleteUser(ctx: Ctx, actor: ServerActor, userId: string): void {
   if (bool(u.es_anfitrion)) throw forbidden("No se puede eliminar al Narrador anfitrión");
   if (userId === actor.id) throw forbidden("No puedes eliminarte a ti mismo");
   ctx.db.prepare("DELETE FROM usuarios WHERE id = ?").run(userId); // sus PJs quedan sin dueño (ON DELETE SET NULL)
+  ctx.notify.usuarioExpulsado(actor.partidaId, userId);
   ctx.notify.changed(actor.partidaId, ["usuarios", "pjs"]);
+}
+
+/**
+ * Solo el Narrador anfitrión cambia contraseñas (de jugadores y de otros Narradores; él no tiene, entra desde el panel).
+ * Las sesiones abiertas de ese usuario dejan de valer: tendrá que entrar con la nueva.
+ */
+export async function setUserPassword(ctx: Ctx, actor: ServerActor, userId: string, password: string): Promise<void> {
+  const me = getUsuarioRow(ctx.db, actor.partidaId, actor.id);
+  if (!bool(me.es_anfitrion)) throw forbidden("Solo el Narrador anfitrión puede cambiar contraseñas");
+  const u = getUsuarioRow(ctx.db, actor.partidaId, userId);
+  if (bool(u.es_anfitrion)) throw forbidden("El Narrador anfitrión no usa contraseña: entra desde el panel del anfitrión");
+  const hash = await hashPassword(password);
+  ctx.db.prepare("UPDATE usuarios SET password_hash = ?, sesion_gen = sesion_gen + 1 WHERE id = ?").run(hash, userId);
+  ctx.notify.usuarioExpulsado(actor.partidaId, userId);
 }
 
 // ===========================================================================
@@ -393,29 +410,45 @@ export function deletePj(ctx: Ctx, actor: ServerActor, pjId: string): void {
 // NPCs
 // ===========================================================================
 
+/** Lo que un jugador recibe de un NPC: sin permiso, nada (su nombre e imagen le llegan con la ficha); con permiso, solo su entrada de acceso. */
+export function npcForActor(actor: ServerActor, n: NpcDto): NpcDto | null {
+  if (isNarrator(actor)) return n;
+  if (!can(actor, "view", { kind: "npc", acceso: n.acceso })) return null;
+  return { ...n, acceso: n.acceso.filter((a) => a.usuarioId === actor.id) };
+}
+
+/** Solo el Narrador crea NPCs y decide qué jugadores son observadores o propietarios. */
 export function createNpc(ctx: Ctx, actor: ServerActor, body: Body<typeof NpcBody>): NpcDto {
   requireNarrator(actor);
+  const acceso = cleanAcceso(ctx, actor.partidaId, null, body.acceso);
   const id = uid();
   ctx.db
-    .prepare("INSERT INTO npcs (id, partida_id, nombre, imagen, notas, oculto) VALUES (?, ?, ?, ?, ?, ?)")
-    .run(id, actor.partidaId, body.nombre, body.imagen ?? null, body.notas, int(body.oculto));
+    .prepare("INSERT INTO npcs (id, partida_id, nombre, imagen, notas, carpeta, acceso) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .run(id, actor.partidaId, body.nombre, body.imagen ?? null, body.notas, body.carpeta, JSON.stringify(acceso));
   ctx.notify.changed(actor.partidaId, ["npcs"]);
   return npcDto(getNpcRow(ctx.db, actor.partidaId, id));
 }
 
+/** Narrador: todo. Propietario: nombre, imagen y notas (la carpeta y los permisos son cosa del Narrador). */
 export function patchNpc(ctx: Ctx, actor: ServerActor, npcId: string, body: Body<typeof PatchNpcBody>): NpcDto {
-  requireNarrator(actor);
   const cur = npcDto(getNpcRow(ctx.db, actor.partidaId, npcId));
+  const res: Resource = { kind: "npc", acceso: cur.acceso };
+  if (!can(actor, "view", res)) throw notFound("NPC no encontrado");
+  if (!can(actor, "edit", res)) throw forbidden("No puedes editar este NPC");
+  if ((body.carpeta !== undefined || body.acceso !== undefined) && !isNarrator(actor)) throw forbidden("Solo el Narrador organiza y comparte los NPCs");
+  const acceso = body.acceso ? cleanAcceso(ctx, actor.partidaId, null, body.acceso) : cur.acceso;
   ctx.db
-    .prepare("UPDATE npcs SET nombre = ?, imagen = ?, notas = ?, oculto = ? WHERE id = ?")
-    .run(body.nombre ?? cur.nombre, body.imagen !== undefined ? body.imagen : cur.imagen, body.notas ?? cur.notas, int(body.oculto ?? cur.oculto), npcId);
+    .prepare("UPDATE npcs SET nombre = ?, imagen = ?, notas = ?, carpeta = ?, acceso = ? WHERE id = ?")
+    .run(body.nombre ?? cur.nombre, body.imagen !== undefined ? body.imagen : cur.imagen, body.notas ?? cur.notas, body.carpeta ?? cur.carpeta, JSON.stringify(acceso), npcId);
   ctx.notify.changed(actor.partidaId, ["npcs", "fichas"]);
-  return npcDto(getNpcRow(ctx.db, actor.partidaId, npcId));
+  return npcForActor(actor, npcDto(getNpcRow(ctx.db, actor.partidaId, npcId))) as NpcDto;
 }
 
 export function deleteNpc(ctx: Ctx, actor: ServerActor, npcId: string): void {
-  requireNarrator(actor);
-  getNpcRow(ctx.db, actor.partidaId, npcId);
+  const cur = npcDto(getNpcRow(ctx.db, actor.partidaId, npcId));
+  const res: Resource = { kind: "npc", acceso: cur.acceso };
+  if (!can(actor, "view", res)) throw notFound("NPC no encontrado");
+  if (!can(actor, "delete", res)) throw forbidden("No puedes borrar este NPC");
   tx(ctx.db, () => {
     ctx.db.prepare("DELETE FROM fichas WHERE ref_tipo = 'npc' AND ref_id = ?").run(npcId);
     ctx.db.prepare("DELETE FROM npcs WHERE id = ?").run(npcId);
@@ -496,19 +529,32 @@ function checkPosition(ctx: Ctx, escena: Row, x: number, y: number, excludeFicha
   }
 }
 
-/** Un NPC oculto también oculta sus fichas a los jugadores. */
-function isHiddenFromPlayers(ctx: Ctx, f: Row): boolean {
-  if (bool(f.oculta)) return true;
-  if (f.ref_tipo !== "npc") return false;
-  const npc = ctx.db.prepare("SELECT oculto FROM npcs WHERE id = ?").get(f.ref_id);
-  return !npc || bool(npc.oculto);
+/** Ocultar es por ficha (y solo lo decide el Narrador). */
+const isHiddenFromPlayers = (f: Row): boolean => bool(f.oculta);
+
+/** Quién maneja la ficha de este personaje además del Narrador: el dueño del PJ o los propietarios del NPC. */
+function tokenOwners(ctx: Ctx, partidaId: string, ref: { tipo: "pj" | "npc"; id: string }): string[] {
+  if (ref.tipo === "pj") {
+    const owner = getPjRow(ctx.db, partidaId, ref.id).dueno_id as string | null;
+    return owner ? [owner] : [];
+  }
+  return npcDto(getNpcRow(ctx.db, partidaId, ref.id)).acceso.filter((a) => a.nivel === "propietario").map((a) => a.usuarioId);
 }
 
+function fichaResource(ctx: Ctx, partidaId: string, escenaId: string, ref: { tipo: "pj" | "npc"; id: string }, oculta: boolean): Resource {
+  const proyectada = getPartidaRow(ctx.db, partidaId).escena_proyectada_id === escenaId;
+  return { kind: "ficha", duenos: tokenOwners(ctx, partidaId, ref), oculta, proyectada };
+}
+
+/** El Narrador pone cualquier ficha; un jugador, la de un PJ suyo o un NPC del que es propietario, en la escena proyectada y visible. */
 export function createFicha(ctx: Ctx, actor: ServerActor, escenaId: string, body: Body<typeof CreateFichaBody>): FichaDto {
-  requireNarrator(actor);
   const escena = getEscenaRow(ctx.db, actor.partidaId, escenaId);
-  if (body.ref.tipo === "pj") getPjRow(ctx.db, actor.partidaId, body.ref.id);
-  else getNpcRow(ctx.db, actor.partidaId, body.ref.id);
+  const res = fichaResource(ctx, actor.partidaId, escenaId, body.ref, body.oculta); // también comprueba que el PJ/NPC exista
+  if (!can(actor, "create", res)) {
+    if (body.oculta) throw forbidden("Solo el Narrador puede ocultar fichas");
+    if (res.kind === "ficha" && !res.proyectada) throw forbidden("Solo puedes poner tus personajes en la escena proyectada");
+    throw forbidden("Solo puedes poner en la escena tus propios personajes");
+  }
   const dup = ctx.db.prepare("SELECT 1 AS ok FROM fichas WHERE escena_id = ? AND ref_tipo = ? AND ref_id = ?").get(escenaId, body.ref.tipo, body.ref.id);
   if (dup) throw conflict("Ese personaje ya tiene una ficha en esta escena");
   checkPosition(ctx, escena, body.x, body.y);
@@ -523,9 +569,8 @@ export function createFicha(ctx: Ctx, actor: ServerActor, escenaId: string, body
 export function moveFicha(ctx: Ctx, actor: ServerActor, fichaId: string, body: Body<typeof PatchFichaBody>): FichaDto {
   const row = getFichaRow(ctx.db, actor.partidaId, fichaId);
   const escena = getEscenaRow(ctx.db, actor.partidaId, String(row.escena_id));
-  const partida = getPartidaRow(ctx.db, actor.partidaId);
-  const pjOwnerId = row.ref_tipo === "pj" ? ((getPjRow(ctx.db, actor.partidaId, String(row.ref_id)).dueno_id as string | null) ?? null) : null;
-  const res: Resource = { kind: "ficha", pjOwnerId, oculta: isHiddenFromPlayers(ctx, row), proyectada: partida.escena_proyectada_id === escena.id };
+  const ref = { tipo: row.ref_tipo as "pj" | "npc", id: String(row.ref_id) };
+  const res = fichaResource(ctx, actor.partidaId, escena.id as string, ref, isHiddenFromPlayers(row));
   if (!can(actor, "move", res)) throw forbidden("No puedes mover esa ficha");
   if (body.oculta !== undefined && !isNarrator(actor)) throw forbidden("Solo el Narrador puede ocultar fichas");
 
@@ -538,13 +583,15 @@ export function moveFicha(ctx: Ctx, actor: ServerActor, fichaId: string, body: B
   const updated = getFichaRow(ctx.db, actor.partidaId, fichaId);
   const dto = fichasDto(ctx.db, actor.partidaId, [updated], systemOf(ctx, actor.partidaId).system)[0] as FichaDto;
   if (oculta !== bool(row.oculta)) ctx.notify.changed(actor.partidaId, ["fichas"]); // aparece/desaparece para los jugadores
-  else ctx.notify.ficha(actor.partidaId, dto, isHiddenFromPlayers(ctx, updated));
+  else ctx.notify.ficha(actor.partidaId, dto, isHiddenFromPlayers(updated));
   return dto;
 }
 
 export function deleteFicha(ctx: Ctx, actor: ServerActor, fichaId: string): void {
-  requireNarrator(actor);
-  getFichaRow(ctx.db, actor.partidaId, fichaId);
+  const row = getFichaRow(ctx.db, actor.partidaId, fichaId);
+  const ref = { tipo: row.ref_tipo as "pj" | "npc", id: String(row.ref_id) };
+  if (!can(actor, "delete", fichaResource(ctx, actor.partidaId, String(row.escena_id), ref, isHiddenFromPlayers(row))))
+    throw forbidden("No puedes quitar esa ficha");
   ctx.db.prepare("DELETE FROM fichas WHERE id = ?").run(fichaId);
   ctx.notify.changed(actor.partidaId, ["fichas"]);
 }
@@ -706,9 +753,10 @@ export const materialResource = (m: MaterialDto): Resource => ({
   acceso: m.acceso,
 });
 
-function cleanAcceso(ctx: Ctx, partidaId: string, creatorId: string, acceso: MaterialDto["acceso"]): MaterialDto["acceso"] {
+/** Valida los permisos (usuarios de la Partida, uno por usuario) y quita al creador, que ya tiene todo. */
+function cleanAcceso(ctx: Ctx, partidaId: string, creatorId: string | null, acceso: Acceso[]): Acceso[] {
   const members = new Set(ctx.db.prepare("SELECT id FROM usuarios WHERE partida_id = ?").all(partidaId).map((r) => String(r.id)));
-  const out = new Map<string, MaterialDto["acceso"][number]>();
+  const out = new Map<string, Acceso>();
   for (const a of acceso) {
     if (!members.has(a.usuarioId)) throw unprocessable("Un usuario asignado no pertenece a la Partida");
     if (a.usuarioId !== creatorId) out.set(a.usuarioId, a);
@@ -724,8 +772,8 @@ export function createMaterial(ctx: Ctx, actor: ServerActor, body: Body<typeof M
   if (body.tipo !== "nota" && !body.archivo) throw unprocessable("Falta el archivo");
   const id = uid();
   ctx.db
-    .prepare("INSERT INTO materiales (id, partida_id, tipo, titulo, contenido, archivo, creador_id, seccion, visible_a_todos, acceso) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .run(id, actor.partidaId, body.tipo, body.titulo, body.tipo === "nota" ? body.contenido : "", body.archivo ?? null, actor.id, body.seccion, int(visibleATodos), JSON.stringify(acceso));
+    .prepare("INSERT INTO materiales (id, partida_id, tipo, titulo, contenido, archivo, creador_id, seccion, visible_a_todos, acceso, carpeta) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .run(id, actor.partidaId, body.tipo, body.titulo, body.tipo === "nota" ? body.contenido : "", body.archivo ?? null, actor.id, body.seccion, int(visibleATodos), JSON.stringify(acceso), body.carpeta);
   ctx.notify.changed(actor.partidaId, ["materiales"]);
   return materialDto(getMaterialRow(ctx.db, actor.partidaId, id));
 }
@@ -737,10 +785,12 @@ export function patchMaterial(ctx: Ctx, actor: ServerActor, id: string, body: Bo
   if ((body.titulo !== undefined || body.contenido !== undefined) && !can(actor, "edit", res)) throw forbidden("No puedes editar este material");
   if ((body.visibleATodos !== undefined || body.acceso !== undefined) && !can(actor, "changeAccess", res))
     throw forbidden("No puedes cambiar quién ve este material");
+  // La carpeta la organiza quien decide quién lo ve (su creador o un Narrador).
+  if (body.carpeta !== undefined && !can(actor, "changeAccess", res)) throw forbidden("No puedes mover este material de carpeta");
   const acceso = body.acceso ? cleanAcceso(ctx, actor.partidaId, cur.creadorId, body.acceso) : cur.acceso;
   ctx.db
-    .prepare("UPDATE materiales SET titulo = ?, contenido = ?, visible_a_todos = ?, acceso = ? WHERE id = ?")
-    .run(body.titulo ?? cur.titulo, body.contenido ?? cur.contenido, int(body.visibleATodos ?? cur.visibleATodos), JSON.stringify(acceso), id);
+    .prepare("UPDATE materiales SET titulo = ?, contenido = ?, visible_a_todos = ?, acceso = ?, carpeta = ? WHERE id = ?")
+    .run(body.titulo ?? cur.titulo, body.contenido ?? cur.contenido, int(body.visibleATodos ?? cur.visibleATodos), JSON.stringify(acceso), body.carpeta ?? cur.carpeta, id);
   ctx.notify.changed(actor.partidaId, ["materiales"]);
   return materialDto(getMaterialRow(ctx.db, actor.partidaId, id));
 }

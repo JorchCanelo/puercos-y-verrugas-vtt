@@ -4,6 +4,8 @@ import { del, fileUrl, patch, post, upload } from "../api";
 import { run } from "../store";
 import { Button, Card, ConfirmButton, Empty, Field, Input, Modal, Select, Textarea, cx } from "../ui";
 import { useMe, userName } from "../util";
+import { FolderGroups, FolderInput, folderNames } from "./Folders";
+import { AccessEditor } from "./AccessEditor";
 
 const ICON = { nota: "📝", imagen: "🖼️", pdf: "📄" } as const;
 
@@ -30,7 +32,7 @@ export function MaterialsPanel() {
         </div>
         <p className="text-xs text-muted">Lo que subes aquí lo ven los demás jugadores; tú decides quién. Los Narradores siempre lo ven.</p>
         {grupo.length === 0 && <Empty>Nadie ha subido notas todavía.</Empty>}
-        {grupo.map((m) => <MaterialItem key={m.id} m={m} />)}
+        <FolderGroups items={grupo} storageKey="materiales-grupo" render={(m) => <MaterialItem key={m.id} m={m} />} />
       </section>
 
       <section className="space-y-2">
@@ -39,7 +41,7 @@ export function MaterialsPanel() {
           {narrator && <Button small onClick={() => setCreating("narrador")}>+ Nuevo</Button>}
         </div>
         {delNarrador.length === 0 && <Empty>{narrator ? "Crea notas, imágenes o PDFs y asígnalos a tus jugadores." : "El Narrador no te ha asignado materiales."}</Empty>}
-        {delNarrador.map((m) => <MaterialItem key={m.id} m={m} />)}
+        <FolderGroups items={delNarrador} storageKey="materiales-narrador" render={(m) => <MaterialItem key={m.id} m={m} />} />
       </section>
 
       {creating && <MaterialDialog seccion={creating} onClose={() => setCreating(null)} />}
@@ -51,6 +53,7 @@ function MaterialItem({ m }: { m: MaterialDto }) {
   const { snap, me } = useMe();
   const [open, setOpen] = useState(false);
   const [sharing, setSharing] = useState(false);
+  const [moving, setMoving] = useState(false);
   const [text, setText] = useState(m.contenido);
   const res = resourceOf(m);
   const canEdit = can({ id: me.id, rol: me.rol }, "edit", res);
@@ -87,38 +90,51 @@ function MaterialItem({ m }: { m: MaterialDto }) {
           {m.tipo === "pdf" && url && <a className="inline-block rounded-md border border-line bg-panel-2 px-3 py-2 text-sm hover:border-gold-dim" href={url} target="_blank" rel="noreferrer">Abrir PDF ↗</a>}
           <div className="flex flex-wrap gap-2">
             {canShare && <Button small onClick={() => setSharing(true)}>Compartir…</Button>}
+            {canShare && <Button small onClick={() => setMoving(true)}>Carpeta…</Button>}
             {canDelete && <ConfirmButton small variant="ghost" message="¿Borrar?" onConfirm={() => void run(() => del(`/api/materiales/${m.id}`))}>Borrar</ConfirmButton>}
           </div>
         </div>
       )}
       {sharing && <ShareDialog m={m} onClose={() => setSharing(false)} />}
+      {moving && <FolderDialog m={m} onClose={() => setMoving(false)} />}
     </Card>
   );
 }
 
 /** Quién puede ver / editar: todos, o usuarios concretos (los Narradores siempre ven todo). */
-function AccessEditor({ visibleATodos, setVisible, acceso, setAcceso, ownerId }: { visibleATodos: boolean; setVisible: (b: boolean) => void; acceso: MaterialAcceso[]; setAcceso: (a: MaterialAcceso[]) => void; ownerId: string }) {
-  const { snap } = useMe();
-  const others = snap.usuarios.filter((u) => u.id !== ownerId && u.rol === "jugador");
-  const levelOf = (id: string) => acceso.find((a) => a.usuarioId === id)?.nivel ?? "";
-  const setLevel = (id: string, nivel: string) => setAcceso([...acceso.filter((a) => a.usuarioId !== id), ...(nivel ? [{ usuarioId: id, nivel: nivel as MaterialAcceso["nivel"] }] : [])]);
+function MaterialAccess({ visibleATodos, setVisible, acceso, setAcceso, ownerId }: { visibleATodos: boolean; setVisible: (b: boolean) => void; acceso: MaterialAcceso[]; setAcceso: (a: MaterialAcceso[]) => void; ownerId: string }) {
   return (
     <div className="space-y-2">
-      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={visibleATodos} onChange={(e) => setVisible(e.target.checked)} /> Visible para todos los jugadores</label>
-      <div className={cx("space-y-1", visibleATodos && "opacity-50")}>
-        {others.length === 0 && <p className="text-xs text-muted">No hay otros jugadores.</p>}
-        {others.map((u) => (
-          <div key={u.id} className="flex items-center gap-2">
-            <span className="flex-1 truncate text-sm">{u.nombre}</span>
-            <Select value={levelOf(u.id)} onChange={(e) => setLevel(u.id, e.target.value)} className="w-auto" aria-label={`Acceso de ${u.nombre}`}>
-              <option value="">Sin acceso</option>
-              <option value="ver">Puede ver</option>
-              <option value="editar">Puede editar</option>
-            </Select>
-          </div>
-        ))}
-      </div>
+      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={visibleATodos} onChange={(e) => setVisible(e.target.checked)} /> Visible para todos los jugadores (como observadores)</label>
+      <AccessEditor
+        acceso={acceso}
+        setAcceso={setAcceso}
+        excludeId={ownerId}
+        disabled={visibleATodos}
+        help="Observador: lo ve. Propietario: además edita el texto, lo comparte, lo mueve de carpeta y lo borra."
+      />
     </div>
+  );
+}
+
+/** Mover a otra carpeta (o sacarlo de la suya). */
+function FolderDialog({ m, onClose }: { m: MaterialDto; onClose: () => void }) {
+  const { snap } = useMe();
+  const [carpeta, setCarpeta] = useState(m.carpeta);
+  return (
+    <Modal title={`Carpeta de «${m.titulo}»`} onClose={onClose}>
+      <div className="space-y-3">
+        <Field label="Carpeta" hint="Escribe una nueva o elige una existente; vacío = sin carpeta. Quien vea el material verá el nombre.">
+          <FolderInput id={`mover-${m.id}`} value={carpeta} onChange={setCarpeta} options={folderNames(snap.materiales.filter((x) => x.seccion === m.seccion))} />
+        </Field>
+        <div className="flex justify-end gap-2">
+          <Button variant="ghost" onClick={onClose}>Cancelar</Button>
+          <Button variant="primary" disabled={carpeta.trim() === m.carpeta} onClick={async () => (await run(() => patch(`/api/materiales/${m.id}`, { carpeta: carpeta.trim() }))) && onClose()}>
+            Guardar
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -127,7 +143,7 @@ function ShareDialog({ m, onClose }: { m: MaterialDto; onClose: () => void }) {
   const [acceso, setAcceso] = useState(m.acceso);
   return (
     <Modal title={`Compartir «${m.titulo}»`} onClose={onClose}>
-      <AccessEditor visibleATodos={visible} setVisible={setVisible} acceso={acceso} setAcceso={setAcceso} ownerId={m.creadorId} />
+      <MaterialAccess visibleATodos={visible} setVisible={setVisible} acceso={acceso} setAcceso={setAcceso} ownerId={m.creadorId} />
       <div className="mt-4 flex justify-end gap-2">
         <Button variant="ghost" onClick={onClose}>Cancelar</Button>
         <Button variant="primary" onClick={async () => (await run(() => patch(`/api/materiales/${m.id}`, { visibleATodos: visible, acceso }))) && onClose()}>Guardar</Button>
@@ -144,7 +160,9 @@ function MaterialDialog({ seccion, onClose }: { seccion: "grupo" | "narrador"; o
   const [archivo, setArchivo] = useState<string | null>(null);
   const [visible, setVisible] = useState(seccion === "grupo");
   const [acceso, setAcceso] = useState<MaterialAcceso[]>([]);
+  const [carpeta, setCarpeta] = useState("");
   const [uploading, setUploading] = useState(false);
+  const { snap } = useMe();
   const ready = titulo.trim() && (tipo === "nota" || archivo) && !uploading;
   return (
     <Modal title={seccion === "grupo" ? "Subir a Notas de grupo" : "Nuevo material del Narrador"} onClose={onClose}>
@@ -171,10 +189,13 @@ function MaterialDialog({ seccion, onClose }: { seccion: "grupo" | "narrador"; o
             }} />
           </Field>
         )}
-        <AccessEditor visibleATodos={visible} setVisible={setVisible} acceso={acceso} setAcceso={setAcceso} ownerId={me.id} />
+        <Field label="Carpeta" hint="Opcional. Quien pueda ver el material verá también el nombre de la carpeta.">
+          <FolderInput id={`carpetas-${seccion}`} value={carpeta} onChange={setCarpeta} options={folderNames(snap.materiales.filter((x) => x.seccion === seccion))} />
+        </Field>
+        <MaterialAccess visibleATodos={visible} setVisible={setVisible} acceso={acceso} setAcceso={setAcceso} ownerId={me.id} />
         <div className="flex justify-end gap-2">
           <Button variant="ghost" onClick={onClose}>Cancelar</Button>
-          <Button variant="primary" disabled={!ready} onClick={async () => (await run(() => post("/api/materiales", { tipo, titulo: titulo.trim(), contenido, archivo, seccion, visibleATodos: visible, acceso }))) && onClose()}>
+          <Button variant="primary" disabled={!ready} onClick={async () => (await run(() => post("/api/materiales", { tipo, titulo: titulo.trim(), contenido, archivo, seccion, visibleATodos: visible, acceso, carpeta: carpeta.trim() }))) && onClose()}>
             {uploading ? "Subiendo…" : "Guardar"}
           </Button>
         </div>

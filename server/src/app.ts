@@ -10,6 +10,7 @@ import {
   CreateFichaBody,
   CreatePjBody,
   CreateUserBody,
+  SetPasswordBody,
   EscenaBody,
   FreeRollBody,
   HostExchangeBody,
@@ -107,6 +108,10 @@ export function registerPublicApp(app: FastifyInstance, ctx: Ctx, deps: PublicDe
   // --- usuarios --------------------------------------------------------------------
   app.post("/api/usuarios", (req) => svc.createUser(ctx, actorOf(req), CreateUserBody.parse(req.body)));
   app.delete("/api/usuarios/:id", (req) => (svc.deleteUser(ctx, actorOf(req), idParam(req)), { ok: true }));
+  app.put("/api/usuarios/:id/password", async (req) => {
+    await svc.setUserPassword(ctx, actorOf(req), idParam(req), SetPasswordBody.parse(req.body).password);
+    return { ok: true };
+  });
 
   // --- personajes ------------------------------------------------------------------
   app.post("/api/pjs", (req) => svc.createPj(ctx, actorOf(req), CreatePjBody.parse(req.body)));

@@ -54,14 +54,29 @@ test("checkPjPatch: sin edición libre solo campos seguros; con edición libre t
   assert.equal(checkPjPatch(narrador, locked, { sheetKeys: ["nombre"], duenoId: true, edicionLibre: true }, SAFE), null);
 });
 
-test("fichas: el jugador mueve solo las de sus PJs, en la escena proyectada y no ocultas", () => {
-  const base = { kind: "ficha", pjOwnerId: "p1", oculta: false, proyectada: true } as const;
-  assert.equal(can(ana, "move", base), true);
-  assert.equal(can(beto, "move", base), false);
-  assert.equal(can(ana, "move", { ...base, proyectada: false }), false);
-  assert.equal(can(ana, "move", { ...base, oculta: true }), false);
-  assert.equal(can(ana, "delete", base), false);
-  assert.equal(can(narrador, "move", { ...base, pjOwnerId: null }), true);
+test("fichas: su dueño (PJ o propietario de NPC) la pone, mueve y quita, en la escena proyectada y no oculta", () => {
+  const base = { kind: "ficha", duenos: ["p1"], oculta: false, proyectada: true } as const;
+  for (const action of ["create", "move", "delete"] as const) {
+    assert.equal(can(ana, action, base), true, action);
+    assert.equal(can(beto, action, base), false, action);
+    assert.equal(can(ana, action, { ...base, proyectada: false }), false, action);
+    assert.equal(can(ana, action, { ...base, oculta: true }), false, action);
+  }
+  assert.equal(can(beto, "move", { ...base, duenos: ["p1", "p2"] }), true); // NPC con dos propietarios
+  assert.equal(can(ana, "edit", base), false); // ocultar/mostrar: solo Narrador
+  assert.equal(can(narrador, "move", { ...base, duenos: [] }), true);
+});
+
+test("NPCs: Ninguno no ve sus datos, Observador los ve, Propietario además edita y borra", () => {
+  const npc = (nivel?: "observador" | "propietario") => ({ kind: "npc", acceso: nivel ? [{ usuarioId: "p1", nivel }] : [] }) as const;
+  assert.equal(can(ana, "view", npc()), false);
+  assert.equal(can(ana, "view", npc("observador")), true);
+  assert.equal(can(ana, "edit", npc("observador")), false);
+  assert.equal(can(ana, "edit", npc("propietario")), true);
+  assert.equal(can(ana, "delete", npc("propietario")), true);
+  assert.equal(can(ana, "changeAccess", npc("propietario")), false); // los permisos los da el Narrador
+  assert.equal(can(ana, "create", npc("propietario")), false);
+  assert.equal(can(beto, "view", npc("propietario")), false);
 });
 
 test("tiradas: visibilidad pública / narradores / autor+narradores", () => {
@@ -82,9 +97,14 @@ test("materiales: creador, acceso asignado, visible a todos, edición solo de no
   assert.equal(can(ana, "view", base), true);
   assert.equal(can(beto, "view", base), false);
   assert.equal(can(beto, "view", { ...base, visibleATodos: true }), true);
-  assert.equal(can(beto, "view", { ...base, acceso: [{ usuarioId: "p2", nivel: "ver" }] }), true);
-  assert.equal(can(beto, "edit", { ...base, acceso: [{ usuarioId: "p2", nivel: "ver" }] }), false);
-  assert.equal(can(beto, "edit", { ...base, acceso: [{ usuarioId: "p2", nivel: "editar" }] }), true);
+  const obs = { ...base, acceso: [{ usuarioId: "p2", nivel: "observador" }] } as const;
+  const prop = { ...base, acceso: [{ usuarioId: "p2", nivel: "propietario" }] } as const;
+  assert.equal(can(beto, "view", obs), true);
+  assert.equal(can(beto, "edit", obs), false);
+  assert.equal(can(beto, "delete", obs), false);
+  assert.equal(can(beto, "edit", prop), true);
+  assert.equal(can(beto, "delete", prop), true); // Propietario: borra, comparte y mueve de carpeta
+  assert.equal(can(beto, "changeAccess", prop), true);
   assert.equal(can(ana, "edit", { ...base, tipo: "pdf" }), false); // pdf: solo subir
   assert.equal(can(beto, "changeAccess", base), false);
   assert.equal(can(ana, "changeAccess", base), true);
@@ -93,7 +113,7 @@ test("materiales: creador, acceso asignado, visible a todos, edición solo de no
 });
 
 test("recursos exclusivos del Narrador", () => {
-  for (const kind of ["npc", "escena", "usuario", "playlist", "musica"] as const) {
+  for (const kind of ["escena", "usuario", "playlist", "musica"] as const) {
     assert.equal(can(ana, "view", { kind }), false, kind);
     assert.equal(can(narrador, "edit", { kind }), true, kind);
   }

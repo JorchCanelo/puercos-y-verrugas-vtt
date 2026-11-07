@@ -1,4 +1,4 @@
-import type { MaterialAcceso, MaterialSection, MaterialType, Role, Visibilidad } from "./types";
+import type { Acceso, MaterialSection, MaterialType, Role, Visibilidad } from "./types";
 
 export interface Actor {
   id: string;
@@ -9,12 +9,13 @@ export const isNarrator = (a: Actor) => a.rol === "narrador";
 
 export type Resource =
   | { kind: "pj"; ownerId: string | null; edicionLibre: boolean }
-  | { kind: "npc" }
+  | { kind: "npc"; acceso: readonly Acceso[] }
   | { kind: "escena" }
   | { kind: "usuario" }
   | { kind: "playlist" }
   | { kind: "musica" }
-  | { kind: "ficha"; pjOwnerId: string | null; oculta: boolean; proyectada: boolean }
+  /** `duenos`: el dueño del PJ o los propietarios del NPC. */
+  | { kind: "ficha"; duenos: readonly string[]; oculta: boolean; proyectada: boolean }
   | { kind: "tirada"; autorId: string; visibilidad: Visibilidad }
   | {
       kind: "material";
@@ -22,7 +23,7 @@ export type Resource =
       creadorId: string;
       seccion: MaterialSection;
       visibleATodos: boolean;
-      acceso: readonly MaterialAcceso[];
+      acceso: readonly Acceso[];
     };
 
 export type Action = "view" | "create" | "edit" | "delete" | "move" | "changeAccess";
@@ -40,14 +41,21 @@ export function can(actor: Actor, action: Action, res: Resource): boolean {
       if (action === "view") return res.ownerId === actor.id; // solo sus propias hojas
       if (action === "edit") return res.ownerId === actor.id;
       return false; // delete / move / changeAccess: solo Narrador
-    case "npc":
+    case "npc": {
+      // Los NPCs los crea y comparte el Narrador; un jugador solo con permiso.
+      const nivel = res.acceso.find((a) => a.usuarioId === actor.id)?.nivel;
+      if (action === "view") return nivel !== undefined;
+      if (action === "edit" || action === "delete") return nivel === "propietario";
+      return false;
+    }
     case "escena":
     case "usuario":
     case "playlist":
     case "musica":
       return false;
     case "ficha":
-      if (action === "move") return res.pjOwnerId === actor.id && res.proyectada && !res.oculta;
+      // Su dueño la pone, la mueve y la quita, solo en la escena proyectada y si no está oculta. Ocultar: Narrador.
+      if (action === "create" || action === "move" || action === "delete") return res.duenos.includes(actor.id) && res.proyectada && !res.oculta;
       return false;
     case "tirada":
       if (action === "view")
@@ -62,10 +70,10 @@ export function can(actor: Actor, action: Action, res: Resource): boolean {
         case "view":
           return mine || res.visibleATodos || entry !== undefined;
         case "edit":
-          return res.tipo === "nota" && (mine || entry?.nivel === "editar");
+          return res.tipo === "nota" && (mine || entry?.nivel === "propietario");
         case "delete":
         case "changeAccess":
-          return mine;
+          return mine || entry?.nivel === "propietario";
         default:
           return false;
       }

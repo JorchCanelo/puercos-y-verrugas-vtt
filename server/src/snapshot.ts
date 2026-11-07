@@ -1,4 +1,4 @@
-import { can, isNarrator, type EscenaDto, type FichaDto, type Snapshot } from "@pyv/shared";
+import { can, isNarrator, type EscenaDto, type FichaDto, type NpcDto, type Snapshot } from "@pyv/shared";
 import type { Ctx, ServerActor } from "./ctx";
 import {
   escenaDto,
@@ -15,7 +15,7 @@ import {
   tiradaDto,
   usuarioDto,
 } from "./repo";
-import { materialResource, musicDto, systemOf } from "./services";
+import { materialResource, musicDto, npcForActor, systemOf } from "./services";
 
 const HISTORY = 100;
 
@@ -40,11 +40,12 @@ export function buildSnapshot(ctx: Ctx, actor: ServerActor): Snapshot {
     .map((r) => pjDto(r, system))
     .filter((p) => can(actor, "view", { kind: "pj", ownerId: p.duenoId, edicionLibre: p.edicionLibre }));
 
+  // NPCs: el jugador solo los que tiene como observador o propietario (los demás le llegan como ficha: nombre e imagen).
   const npcs = db
     .prepare("SELECT * FROM npcs WHERE partida_id = ? ORDER BY rowid")
     .all(pid)
-    .map(npcDto)
-    .filter((n) => narrator || !n.oculto);
+    .map((r) => npcForActor(actor, npcDto(r)))
+    .filter((n): n is NpcDto => n !== null);
 
   // Escenas: el Narrador todas; el jugador solo la proyectada.
   const escenas: EscenaDto[] = db
@@ -53,14 +54,9 @@ export function buildSnapshot(ctx: Ctx, actor: ServerActor): Snapshot {
     .map(escenaDto)
     .filter((e) => narrator || e.id === proyectada);
 
-  // Fichas: el jugador solo las de la escena proyectada, no ocultas y que no sean de un NPC oculto.
+  // Fichas: el jugador solo las de la escena proyectada y no ocultas.
   let fichaRows = db.prepare("SELECT * FROM fichas WHERE partida_id = ? ORDER BY rowid").all(pid);
-  if (!narrator) {
-    const hiddenNpcs = new Set(db.prepare("SELECT id FROM npcs WHERE partida_id = ? AND oculto = 1").all(pid).map((r) => String(r.id)));
-    fichaRows = fichaRows.filter(
-      (f) => f.escena_id === proyectada && Number(f.oculta) === 0 && !(f.ref_tipo === "npc" && hiddenNpcs.has(String(f.ref_id))),
-    );
-  }
+  if (!narrator) fichaRows = fichaRows.filter((f) => f.escena_id === proyectada && Number(f.oculta) === 0);
   const fichas: FichaDto[] = fichasDto(db, pid, fichaRows, system);
 
   const tiradaRows = narrator

@@ -48,7 +48,10 @@ export interface NpcDto {
   nombre: string;
   imagen: string | null;
   notas: string;
-  oculto: boolean;
+  /** "" = sin carpeta. */
+  carpeta: string;
+  /** Permisos de los jugadores. Un jugador solo recibe los NPCs en los que tiene permiso, y solo su propia entrada. */
+  acceso: Acceso[];
 }
 
 export type SceneType = "imagen" | "cuadricula";
@@ -156,10 +159,17 @@ export interface MusicDto extends MusicState {
 export type MaterialType = "nota" | "imagen" | "pdf";
 export type MaterialSection = "narrador" | "grupo";
 
-export interface MaterialAcceso {
+/**
+ * Permiso de un jugador sobre un NPC o un material (sin entrada = «Ninguno»; los Narradores siempre tienen todo).
+ *  · "observador": ve todos sus datos.
+ *  · "propietario": además edita y borra (NPC: nombre, imagen y notas, y maneja su ficha como la de su PJ;
+ *    material: edita el texto, lo borra, decide quién lo ve y lo mueve de carpeta).
+ */
+export interface Acceso {
   usuarioId: string;
-  nivel: "ver" | "editar";
+  nivel: "observador" | "propietario";
 }
+export type MaterialAcceso = Acceso;
 
 export interface MaterialDto {
   id: string;
@@ -171,6 +181,8 @@ export interface MaterialDto {
   seccion: MaterialSection;
   visibleATodos: boolean;
   acceso: MaterialAcceso[];
+  /** Carpeta en la que la organizó quien puede compartirla ("" = sin carpeta). */
+  carpeta: string;
 }
 
 /** Estado completo filtrado por rol. Fuente de verdad para (re)conexión. */

@@ -1,13 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type DragEvent } from "react";
 import Konva from "konva";
 import { Circle, Group, Image as KImage, Layer, Line, Rect, Stage, Text } from "react-konva";
 import type { EscenaDto, FichaDto } from "@pyv/shared";
 import { FIT_VIEW, ZOOM_MAX, ZOOM_MIN, ZOOM_STEP, clampPan, dist, mid, zoomAt, type BoardView, type Point } from "../boardView";
 import { fileUrl, patch, put } from "../api";
 import { run, useStore } from "../store";
-import { Button, Select } from "../ui";
+import { Button, Select, cx } from "../ui";
 import { useSystemUi } from "../systems/registry";
 import { useMe } from "../util";
+import { TOKEN_MIME, canPlace, isTokenOwner, placeToken, readTokenDrop, useBoardScene } from "../tokens";
 
 function useImg(url: string | null): HTMLImageElement | null {
   const [img, setImg] = useState<HTMLImageElement | null>(null);
@@ -46,13 +47,11 @@ export function Board() {
     const pj = snap.pjs.find((p) => p.id === pjId);
     return (pj && systemUi?.tokenColor?.(pj)) || PJ_TOKEN_COLOR;
   };
-  const viewSceneId = useStore((s) => s.viewSceneId);
   const viewScene = useStore((s) => s.viewScene);
   const patchFicha = useStore((s) => s.patchFicha);
   const refresh = useStore((s) => s.refresh);
 
-  const sceneId = narrator ? (viewSceneId ?? snap.escenaProyectadaId ?? snap.escenas.find((e) => e.abierta)?.id ?? null) : snap.escenaProyectadaId;
-  const escena = snap.escenas.find((e) => e.id === sceneId) ?? null;
+  const escena = useBoardScene();
   const bg = useImg(fileUrl(escena?.imagen));
 
   const wrap = useRef<HTMLDivElement>(null);
@@ -132,7 +131,6 @@ export function Board() {
     if (e.evt.touches.length >= 2) onTouchStart(e);
   };
 
-  const myPjIds = new Set(snap.pjs.filter((p) => p.duenoId === me.id).map((p) => p.id));
   const fichas = escena ? snap.fichas.filter((f) => f.escenaId === escena.id) : [];
 
   const move = async (f: FichaDto, x: number, y: number) => {
@@ -143,10 +141,46 @@ export function Board() {
   };
 
   const project = (id: string | null) => run(() => put("/api/proyeccion", { escenaId: id }));
+
+  // --- soltar una ficha arrastrada desde la lista de PJs / NPCs ---------------------------
+  const [dropHover, setDropHover] = useState(false);
+  const isTokenDrag = (e: DragEvent) => !!escena && e.dataTransfer.types.includes(TOKEN_MIME);
+  const onDragOver = (e: DragEvent) => {
+    if (!isTokenDrag(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+    setDropHover(true);
+  };
+  const onDrop = (e: DragEvent) => {
+    setDropHover(false);
+    const ref = isTokenDrag(e) ? readTokenDrop(e) : null;
+    if (!escena || !ref) return;
+    e.preventDefault();
+    if (!canPlace(snap, me, escena, ref)) return;
+    // Pantalla → Stage (zoom/desplazamiento) → escena (encaje de la imagen).
+    const box = wrap.current?.getBoundingClientRect();
+    if (!box) return;
+    const sx = (e.clientX - box.left - view.x) / view.zoom;
+    const sy = (e.clientY - box.top - view.y) / view.zoom;
+    const lx = (sx - offX) / scale;
+    const ly = (sy - offY) / scale;
+    const pos =
+      escena.tipo === "cuadricula"
+        ? { x: clamp(Math.floor(lx / (iw / escena.columnas)), 0, escena.columnas - 1), y: clamp(Math.floor(ly / (ih / escena.filas)), 0, escena.filas - 1) }
+        : { x: clamp(lx / iw, 0, 1), y: clamp(ly / ih, 0, 1) };
+    void placeToken(snap, escena, ref, pos);
+  };
   const openScenes = snap.escenas.filter((e) => e.abierta || e.id === escena?.id);
 
   return (
-    <div className="relative h-full w-full bg-black/30" ref={wrap} style={{ touchAction: "none" }}>
+    <div
+      className={cx("relative h-full w-full bg-black/30", dropHover && "outline-2 -outline-offset-2 outline-dashed outline-gold")}
+      ref={wrap}
+      style={{ touchAction: "none" }}
+      onDragOver={onDragOver}
+      onDragLeave={() => setDropHover(false)}
+      onDrop={onDrop}
+    >
       <div className="absolute left-2 top-2 z-10 flex max-w-[calc(100%-1rem)] items-center gap-2">
         {narrator ? (
           <>
@@ -211,7 +245,7 @@ export function Board() {
                 escena={escena}
                 iw={iw}
                 ih={ih}
-                canMove={narrator || (f.ref.tipo === "pj" && myPjIds.has(f.ref.id))}
+                canMove={narrator || isTokenOwner(snap, me, f.ref)}
                 color={f.ref.tipo === "pj" ? pjTokenColor(f.ref.id) : NPC_TOKEN_COLOR}
                 onMove={move}
               />
