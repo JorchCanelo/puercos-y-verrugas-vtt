@@ -4,6 +4,10 @@ import { patchOf } from "./patch";
 
 const name = z.string().trim().min(1).max(80);
 const longText = z.string().max(20_000);
+/** Permisos de jugadores sobre un NPC o un material (ver `Acceso`). */
+const acceso = z.array(z.object({ usuarioId: z.string(), nivel: z.enum(["observador", "propietario"]) })).max(100);
+/** Carpeta para organizar NPCs y materiales ("" = sin carpeta). */
+const carpeta = z.string().trim().max(60);
 /** Id de un sistema de juego (ver system.ts). */
 export const systemId = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/, "id de sistema no válido");
 const archivo = z.string().regex(/^[A-Za-z0-9_-]+\.[a-z0-9]{2,5}$/).nullable();
@@ -33,6 +37,7 @@ export const CreateUserBody = z.object({
   password: z.string().min(4).max(200),
   rol: z.enum(["narrador", "jugador"]),
 });
+export const SetPasswordBody = z.object({ password: CreateUserBody.shape.password });
 
 /** La hoja la valida el servidor con el sistema de la Partida. */
 const sheetObject = z.record(z.string(), z.unknown());
@@ -55,7 +60,8 @@ export const NpcBody = z.object({
   nombre: name,
   imagen: archivo.optional(),
   notas: longText.default(""),
-  oculto: z.boolean().default(false),
+  carpeta: carpeta.default(""),
+  acceso: acceso.default([]),
 });
 export const PatchNpcBody = patchOf(NpcBody);
 
@@ -108,13 +114,15 @@ export const MaterialBody = z.object({
   seccion: z.enum(["narrador", "grupo"]),
   /** Si se omite: las Notas de grupo son visibles para todos; las del Narrador, solo para quien se asigne. */
   visibleATodos: z.boolean().optional(),
-  acceso: z.array(z.object({ usuarioId: z.string(), nivel: z.enum(["ver", "editar"]) })).default([]),
+  acceso: acceso.default([]),
+  carpeta: carpeta.default(""),
 });
 export const PatchMaterialBody = z.object({
   titulo: name.optional(),
   contenido: longText.optional(),
   visibleATodos: z.boolean().optional(),
   acceso: MaterialBody.shape.acceso.optional(),
+  carpeta: carpeta.optional(),
 });
 
 export const PlaylistBody = z.object({ nombre: name });

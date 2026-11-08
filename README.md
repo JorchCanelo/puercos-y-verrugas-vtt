@@ -42,8 +42,51 @@ npm run desktop
 - Al cerrar la ventana se detiene el servidor y se desconecta a todos los jugadores.
 - Si la consola avisa de scripts sin aprobar tras cambiar la versión de Electron: `npm approve-scripts electron electron-winstaller --prefix desktop`.
 
+## Instalador de Windows
+Para usar el VTT en un PC **sin Node, npm ni el código** (por ejemplo, si otra persona hace de anfitrión), genera el instalador:
+
+```bash
+npm run dist
+```
+
+Crea `release/Puercos y Verrugas VTT Setup <versión>.exe` (la versión es la de `desktop/package.json`). La primera vez
+electron-builder descarga NSIS y otras herramientas, así que tarda más.
+
+- **Solo lleva el VTT base** (sistema genérico). Los módulos de `modules/` no van dentro, aunque los tengas en tu carpeta:
+  se instalan después desde el panel como `.pyvmod` (ver [Módulos](#módulos-de-sistema-de-juego)). Así el `.exe` se
+  puede compartir sin repartir el contenido de ningún módulo.
+- **"Windows protegió su PC" (SmartScreen):** sale porque el instalador no está firmado. Pulsa «Más información» →
+  «Ejecutar de todas formas».
+- Se instala para el usuario actual, sin preguntar carpeta, con acceso directo en el escritorio y en el menú Inicio.
+  Se desinstala desde «Agregar o quitar programas».
+- La primera vez, el Firewall de Windows pedirá permiso para «Puercos y Verrugas VTT»: acéptalo en redes privadas.
+- Para publicarlo, súbelo como *Release* de GitHub; **no** lo añadas al repositorio (`release/` está en `.gitignore`).
+
+### Datos de la versión instalada
+- Viven en `%APPDATA%\Puercos y Verrugas VTT\data\` (base de datos, archivos subidos y módulos en `modulos\`),
+  separados de los de `npm run play` (`server/data/`).
+- **Desinstalar no borra los datos:** al reinstalar o actualizar sigues teniendo tus Partidas. Para borrarlas del
+  todo, elimina esa carpeta a mano.
+- **Llevar tu mesa a la versión instalada (o a otro PC):** cierra la app y copia el contenido de `server/data/` (o de
+  la carpeta `data` del otro PC) a `%APPDATA%\Puercos y Verrugas VTT\data\`. Copia, no muevas: a partir de ahí son
+  dos copias independientes y lo que se juegue en una no aparece en la otra.
+- Si el error *"Cannot create symbolic link: A required privilege is not held by the client"* aparece al ejecutar
+  `npm run dist`, activa el Modo de desarrollador de Windows (Configuración → Para programadores) o ejecuta la terminal
+  como administrador una vez.
+
 ## Módulos de sistema de juego
 Un módulo aporta las reglas de un juego: hoja, creación de personajes, movimientos, progreso, catálogo…
+
+### Instalar un módulo empaquetado (.pyvmod)
+Funciona en todas las versiones, también en la **instalada** (sin Node ni código):
+1. En el panel del anfitrión, sección **Módulos de sistema de juego**, pulsa **«Instalar módulo…»** y elige el archivo `.pyvmod`.
+   (También puedes copiarlo a mano a la carpeta `modulos/` de tus datos: `server/data/modulos/` con `npm run play`,
+   `%APPDATA%\Puercos y Verrugas VTT\data\modulos\` en la versión instalada. El panel muestra la ruta.)
+2. **Reinicia el VTT** (cierra y abre la app, o vuelve a ejecutar `npm run play`). Los módulos se cargan al arrancar.
+
+Para actualizarlo, instala la versión nueva (sustituye a la anterior) y reinicia. Para quitarlo, «Quitar» y reinicia.
+
+### Instalar un módulo como código fuente (para desarrollarlo)
 Cada módulo es su propio repositorio y se clona dentro de `modules/`:
 
 ```bash
@@ -56,7 +99,7 @@ npm run play
 
 Al arrancar, la consola muestra `[módulos] Sistemas de juego instalados: …` y el panel del anfitrión ya permite elegirlo.
 Si quitas un módulo, las Partidas que lo usaban siguen abriendo, pero sus personajes quedan en **solo lectura** (sin perder datos).
-Cómo escribir uno: [`modules/README.md`](modules/README.md).
+Cómo escribir uno y cómo empaquetarlo como `.pyvmod` (`npm run pack-module -- <carpeta>`): [`modules/README.md`](modules/README.md).
 
 > Un módulo es código que se ejecuta en tu PC y en el navegador de los jugadores: instala solo módulos de quien confíes.
 
@@ -70,7 +113,8 @@ Cómo escribir uno: [`modules/README.md`](modules/README.md).
 | `npm run modules` | Vuelve a detectar los módulos de `modules/` (también se hace solo al instalar, compilar, probar y arrancar) |
 | `npm run build` | Compila cliente (Vite) y servidor (esbuild) |
 | `npm run desktop` | Compila, instala `desktop/` por separado y abre la app de escritorio (ver [App de escritorio](#app-de-escritorio-windows)) |
-| `npm run dist` | Instalador de Windows (NSIS) en `release/` |
+| `npm run dist` | Instalador de Windows (NSIS) en `release/`, **solo con el VTT base**: los módulos de `modules/` no van dentro (se instalan después como `.pyvmod`) |
+| `npm run pack-module -- <carpeta>` | Empaqueta `modules/<carpeta>` como `release/modulos/<id>-<versión>.pyvmod` para instalarlo desde el panel |
 
 ## Arquitectura
 - `shared/`: interfaz de sistema de juego (`GameSystem`), sistema genérico, permisos, esquemas zod y tipos compartidos.
@@ -93,10 +137,10 @@ Cómo escribir uno: [`modules/README.md`](modules/README.md).
 - Tus datos (`data/`: base de datos y archivos subidos) están en `.gitignore`. Para copiarlos a otra carpeta o PC, copia `server/data/` entera.
 
 ## Estado de verificación (honesto)
-- **Pruebas automáticas:** `shared` y la capa de servicios/autenticación/subidas del servidor (sobre node:sqlite, el mismo motor que usa el servidor), con un sistema de juego de prueba. El zoom/desplazamiento del tablero se probó en Chromium con ratón y toques simulados. La CI corre typecheck, pruebas y compilación en Windows y Linux.
-- **Probado a mano:** una sesión real con 2 Narradores y 3 jugadores (incluida la música sincronizada) y la app de escritorio (`npm run desktop`).
+- **Pruebas automáticas:** `shared` y la capa de servicios/autenticación/subidas y los módulos empaquetados del servidor (sobre node:sqlite, el mismo motor que usa el servidor), con un sistema de juego de prueba. El zoom/desplazamiento del tablero se probó en Chromium con ratón y toques simulados. La CI corre typecheck, pruebas y compilación en Windows y Linux.
+- **Probado a mano:** una sesión real con 2 Narradores y 3 jugadores (incluida la música sincronizada), la app de escritorio (`npm run desktop`), el instalador (`npm run dist`) y la instalación de un módulo `.pyvmod` desde el panel en la versión instalada.
 - **Sin pruebas automáticas:** capa HTTP/Socket.IO, la mayor parte del cliente, Electron y el túnel de cloudflared.
-- **Nunca probado:** el túnel de cloudflared y el instalador (`npm run dist`).
+- **Nunca probado:** el túnel de cloudflared.
 
 ## Versiones mínimas por seguridad
 Fijadas tras `npm audit` (los `^` en los `package.json` ya impiden bajar de estas):

@@ -10,6 +10,7 @@ import {
   CreateFichaBody,
   CreatePjBody,
   CreateUserBody,
+  SetPasswordBody,
   EscenaBody,
   FreeRollBody,
   HostExchangeBody,
@@ -36,11 +37,14 @@ import { HttpError, badRequest, notFound } from "./errors";
 import { actorOf, idParam, installErrors, installSecurity, type Reply } from "./http";
 import * as svc from "./services";
 import { buildSnapshot } from "./snapshot";
+import { clientInfo, type LoadedPacked } from "./packed";
 
 export interface PublicDeps {
   clientDir: string | null;
   hostTokens: HostTokens;
   limiter: LoginLimiter;
+  /** Módulos empaquetados (.pyvmod) cargados al arrancar. */
+  packed?: LoadedPacked;
 }
 
 export function registerPublicApp(app: FastifyInstance, ctx: Ctx, deps: PublicDeps): void {
@@ -104,6 +108,10 @@ export function registerPublicApp(app: FastifyInstance, ctx: Ctx, deps: PublicDe
   // --- usuarios --------------------------------------------------------------------
   app.post("/api/usuarios", (req) => svc.createUser(ctx, actorOf(req), CreateUserBody.parse(req.body)));
   app.delete("/api/usuarios/:id", (req) => (svc.deleteUser(ctx, actorOf(req), idParam(req)), { ok: true }));
+  app.put("/api/usuarios/:id/password", async (req) => {
+    await svc.setUserPassword(ctx, actorOf(req), idParam(req), SetPasswordBody.parse(req.body).password);
+    return { ok: true };
+  });
 
   // --- personajes ------------------------------------------------------------------
   app.post("/api/pjs", (req) => svc.createPj(ctx, actorOf(req), CreatePjBody.parse(req.body)));
@@ -173,6 +181,24 @@ export function registerPublicApp(app: FastifyInstance, ctx: Ctx, deps: PublicDe
     return reply.header("Cache-Control", "private, max-age=3600").sendFile(`${actor.partidaId}/archivos/${name}`);
   });
 
+  // --- módulos empaquetados (.pyvmod): interfaz y estilos para el navegador ------------------
+  // Solo con sesión: el código del módulo es para quien juega en esta mesa.
+  app.get("/api/modulos", (req) => (actorOf(req), clientInfo(deps.packed)));
+  app.get("/modulos/estilos.css", (req, reply) => {
+    actorOf(req);
+    const css = deps.packed?.css;
+    if (!css) throw notFound();
+    return reply.type("text/css; charset=utf-8").header("Cache-Control", "private, max-age=86400").send(css.text);
+  });
+  app.get("/modulos/:id/:file", (req, reply) => {
+    actorOf(req);
+    const { id, file } = req.params as { id: string; file: string };
+    const ui = deps.packed?.ui.get(id);
+    if (!ui || file !== `${ui.hash}.js`) throw notFound();
+    // El nombre lleva el hash del contenido: se puede guardar en caché sin miedo a versiones viejas.
+    return reply.type("text/javascript; charset=utf-8").header("Cache-Control", "private, max-age=31536000, immutable").send(ui.js);
+  });
+
   registerClient(app, deps.clientDir);
 }
 
@@ -185,7 +211,7 @@ export function registerClient(app: FastifyInstance, clientDir: string | null): 
     });
   }
   app.setNotFoundHandler((req, reply) => {
-    const isApi = req.url.startsWith("/api/") || req.url.startsWith("/admin-api/") || req.url.startsWith("/archivos/") || req.url.startsWith("/socket.io/");
+    const isApi = req.url.startsWith("/api/") || req.url.startsWith("/admin-api/") || req.url.startsWith("/archivos/") || req.url.startsWith("/modulos/") || req.url.startsWith("/socket.io/");
     if (hasClient && req.method === "GET" && !isApi) return reply.type("text/html; charset=utf-8").send(readIndex(clientDir as string));
     if (!hasClient && req.method === "GET" && !isApi)
       return reply

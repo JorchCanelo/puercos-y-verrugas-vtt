@@ -38,6 +38,7 @@ export interface SessionPayload {
   u: string; // usuario
   p: string; // partida
   e: number; // expira (ms epoch)
+  g?: number; // generación de sesión del usuario (usuarios.sesion_gen); sin ella = 0 (sesiones anteriores al ciclo 6)
 }
 
 export function signSession(secret: Buffer, payload: SessionPayload): string {

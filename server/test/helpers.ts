@@ -95,6 +95,7 @@ export interface Recorded {
   fichas: { f: FichaDto; soloNarradores: boolean }[];
   musica: MusicDto[];
   cerradas: string[];
+  expulsados: string[];
 }
 
 /** Contexto de pruebas: SQLite en memoria (node:sqlite), reloj controlable y dados predecibles. */
@@ -104,7 +105,7 @@ export function makeCtx(systems: SystemRegistry = createRegistry([testSystem])) 
   const db = raw as unknown as Db;
   migrate(db);
 
-  const rec: Recorded = { changed: [], tiradas: [], mensajes: [], fichas: [], musica: [], cerradas: [] };
+  const rec: Recorded = { changed: [], tiradas: [], mensajes: [], fichas: [], musica: [], cerradas: [], expulsados: [] };
   const notify: Notifier = {
     changed: (partidaId, scopes) => rec.changed.push({ partidaId, scopes }),
     tirada: (_p, t) => rec.tiradas.push(t),
@@ -112,6 +113,7 @@ export function makeCtx(systems: SystemRegistry = createRegistry([testSystem])) 
     ficha: (_p, f, soloNarradores) => rec.fichas.push({ f, soloNarradores }),
     musica: (_p, m) => rec.musica.push(m),
     partidaCerrada: (p) => rec.cerradas.push(p),
+    usuarioExpulsado: (_p, u) => rec.expulsados.push(u),
   };
 
   const clock = { t: 1_700_000_000_000 };

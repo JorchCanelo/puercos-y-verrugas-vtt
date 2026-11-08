@@ -8,12 +8,13 @@ import { registerPublicApp } from "./app";
 import { HostTokens, LoginLimiter, loadSecret } from "./auth";
 import type { Ctx } from "./ctx";
 import { openDb } from "./db";
+import { loadPacked } from "./packed";
 import { createFastify } from "./http";
 import { Realtime } from "./realtime";
 import { TunnelManager } from "./tunnel";
 
 export interface StartOptions {
-  /** Dónde viven la base de datos, el secreto de sesión y los archivos subidos. */
+  /** Dónde viven la base de datos, el secreto de sesión, los archivos subidos y los módulos empaquetados (modulos/). */
   dataDir?: string;
   /** Puerto público (jugadores / túnel). */
   publicPort?: number;
@@ -47,6 +48,8 @@ export async function start(opts: StartOptions = {}): Promise<RunningServer> {
   const logger = opts.logger ?? false;
 
   const db = openDb(join(dataDir, "vtt.sqlite"));
+  // Módulos empaquetados (.pyvmod): se cargan solo al arrancar. Los de modules/ (código fuente) tienen prioridad.
+  const packed = await loadPacked(join(dataDir, "modulos"), new Set(MODULE_SYSTEMS.map((s) => s.id)));
   const hostTokens = new HostTokens();
   const limiter = new LoginLimiter();
   const tunnel = new TunnelManager();
@@ -61,14 +64,16 @@ export async function start(opts: StartOptions = {}): Promise<RunningServer> {
     die: secureDie,
     secret: loadSecret(dataDir),
     dataDir,
-    systems: createRegistry(MODULE_SYSTEMS),
+    systems: createRegistry([...MODULE_SYSTEMS, ...packed.systems]),
     connected: (partidaId) => realtime.connectedIds(partidaId),
   };
   realtime.bind(ctx);
-  registerPublicApp(publicApp, ctx, { clientDir, hostTokens, limiter });
+  registerPublicApp(publicApp, ctx, { clientDir, hostTokens, limiter, packed });
 
   const adminApp = createFastify(logger);
-  registerAdminApp(adminApp, ctx, { clientDir, hostTokens, tunnel, publicPort, adminPort, devOrigins, entryBase: opts.dev ? "http://localhost:5173" : undefined });
+  registerAdminApp(adminApp, ctx, { clientDir, hostTokens, tunnel, publicPort, adminPort, devOrigins, entryBase: opts.dev ? "http://localhost:5173" : undefined,
+    modulos: { packed, source: MODULE_SYSTEMS },
+  });
 
   await publicApp.listen({ port: publicPort, host: publicHost });
   await adminApp.listen({ port: adminPort, host: "127.0.0.1" });

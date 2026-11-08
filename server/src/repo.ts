@@ -65,7 +65,8 @@ export const npcDto = (r: Row): NpcDto => ({
   nombre: s(r.nombre),
   imagen: sn(r.imagen),
   notas: s(r.notas),
-  oculto: bool(r.oculto),
+  carpeta: s(r.carpeta ?? ""),
+  acceso: JSON.parse(s(r.acceso ?? "[]")) as NpcDto["acceso"],
 });
 
 export const escenaDto = (r: Row): EscenaDto => ({
@@ -91,6 +92,7 @@ export const materialDto = (r: Row): MaterialDto => ({
   seccion: s(r.seccion) as MaterialDto["seccion"],
   visibleATodos: bool(r.visible_a_todos),
   acceso: JSON.parse(s(r.acceso)) as MaterialDto["acceso"],
+  carpeta: s(r.carpeta ?? ""),
 });
 
 export const pistaDto = (r: Row): PistaDto => ({ id: s(r.id), nombre: s(r.nombre), archivo: s(r.archivo) });

@@ -1,23 +1,14 @@
 import { useState } from "react";
-import type { EscenaDto, FichaDto } from "@pyv/shared";
+import type { EscenaDto } from "@pyv/shared";
 import { del, fileUrl, patch, post, put, upload } from "../api";
 import { run, useStore } from "../store";
-import { Button, Card, ConfirmButton, Empty, Field, Input, Modal, Select, cx } from "../ui";
+import { Button, ConfirmButton, Empty, Field, Input, Modal, Select, cx } from "../ui";
 import { useMe } from "../util";
-
-/** Primera casilla libre de una cuadrícula (recorre por filas). */
-function firstFreeCell(e: EscenaDto, fichas: FichaDto[]): { x: number; y: number } {
-  const taken = new Set(fichas.map((f) => `${f.x},${f.y}`));
-  for (let y = 0; y < e.filas; y++) for (let x = 0; x < e.columnas; x++) if (!taken.has(`${x},${y}`)) return { x, y };
-  return { x: 0, y: 0 };
-}
 
 export function ScenesPanel() {
   const { snap } = useMe();
-  const viewSceneId = useStore((s) => s.viewSceneId);
   const viewScene = useStore((s) => s.viewScene);
   const [editing, setEditing] = useState<EscenaDto | "new" | null>(null);
-  const current = snap.escenas.find((e) => e.id === (viewSceneId ?? snap.escenaProyectadaId)) ?? snap.escenas.find((e) => e.abierta);
 
   return (
     <div className="space-y-4">
@@ -53,50 +44,8 @@ export function ScenesPanel() {
           );
         })}
       </ul>
-      {current && <TokensCard escena={current} />}
       {editing && <SceneDialog escena={editing === "new" ? null : editing} onClose={() => setEditing(null)} />}
     </div>
-  );
-}
-
-function TokensCard({ escena }: { escena: EscenaDto }) {
-  const { snap } = useMe();
-  const fichas = snap.fichas.filter((f) => f.escenaId === escena.id);
-  const placed = new Set(fichas.map((f) => `${f.ref.tipo}:${f.ref.id}`));
-  const options = [
-    ...snap.pjs.map((p) => ({ key: `pj:${p.id}`, tipo: "pj" as const, id: p.id, label: `${p.nombre} (PJ)` })),
-    ...snap.npcs.map((n) => ({ key: `npc:${n.id}`, tipo: "npc" as const, id: n.id, label: `${n.nombre} (NPC)` })),
-  ].filter((o) => !placed.has(o.key));
-  const [pick, setPick] = useState("");
-  const chosen = options.find((o) => o.key === pick) ?? options[0];
-
-  const add = () => {
-    if (!chosen) return;
-    const pos = escena.tipo === "cuadricula" ? firstFreeCell(escena, fichas) : { x: 0.5, y: 0.5 };
-    void run(() => post(`/api/escenas/${escena.id}/fichas`, { ref: { tipo: chosen.tipo, id: chosen.id }, ...pos, oculta: chosen.tipo === "npc" }));
-  };
-
-  return (
-    <Card title={`Fichas en «${escena.nombre}»`}>
-      <div className="flex gap-2">
-        <Select value={chosen?.key ?? ""} onChange={(e) => setPick(e.target.value)} disabled={options.length === 0} aria-label="Personaje a añadir">
-          {options.length === 0 && <option value="">Todos están en la escena</option>}
-          {options.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
-        </Select>
-        <Button disabled={!chosen} onClick={add}>Añadir</Button>
-      </div>
-      <p className="mt-1 text-xs text-muted">Los NPC entran ocultos. Arrastra las fichas en el tablero para moverlas.</p>
-      <ul className="mt-3 divide-y divide-line">
-        {fichas.length === 0 && <li className="py-2 text-sm text-muted">Sin fichas.</li>}
-        {fichas.map((f) => (
-          <li key={f.id} className="flex items-center gap-2 py-1.5">
-            <span className="flex-1 truncate text-sm">{f.nombre} <span className="text-xs text-muted">{f.ref.tipo === "npc" ? "NPC" : "PJ"}{f.oculta && " · oculta"}</span></span>
-            <Button small onClick={() => void run(() => patch(`/api/fichas/${f.id}`, { oculta: !f.oculta }))}>{f.oculta ? "Mostrar" : "Ocultar"}</Button>
-            <Button small variant="ghost" onClick={() => void run(() => del(`/api/fichas/${f.id}`))} aria-label={`Quitar ${f.nombre}`}>✕</Button>
-          </li>
-        ))}
-      </ul>
-    </Card>
   );
 }
 

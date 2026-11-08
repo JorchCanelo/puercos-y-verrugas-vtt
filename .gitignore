@@ -14,3 +14,4 @@ modules/*
 server/src/modules.generated.ts
 client/src/systems/modules.generated.ts
 client/src/modules.generated.css
+server/src/host-styles.generated.ts

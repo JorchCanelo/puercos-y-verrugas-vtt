@@ -1,4 +1,4 @@
-import type { PartidaDto, SistemaInfoDto } from "@pyv/shared";
+import type { ModulosDto, PartidaDto, SistemaInfoDto } from "@pyv/shared";
 
 export class ApiError extends Error {
   constructor(
@@ -37,7 +37,9 @@ export const put = <T,>(url: string, body: unknown) => request<T>("PUT", url, bo
 export const del = <T,>(url: string) => request<T>("DELETE", url);
 
 /** Sube un archivo (imagen/PDF/audio según permisos) y devuelve el nombre guardado. */
-export async function upload(file: File, url = "/api/archivos"): Promise<{ archivo: string; kind: string }> {
+export const upload = (file: File, url = "/api/archivos") => sendFile<{ archivo: string; kind: string }>(file, url);
+
+async function sendFile<T>(file: File, url: string): Promise<T> {
   const form = new FormData();
   form.append("file", file);
   const res = await fetch(url, { method: "POST", body: form, credentials: "same-origin" });
@@ -50,7 +52,7 @@ export async function upload(file: File, url = "/api/archivos"): Promise<{ archi
     }
     throw new ApiError(res.status, msg);
   }
-  return (await res.json()) as { archivo: string; kind: string };
+  return (await res.json()) as T;
 }
 
 export const fileUrl = (name: string | null | undefined) => (name ? `/archivos/${name}` : null);
@@ -80,4 +82,7 @@ export const admin = {
   red: () => get<NetworkInfo>("/admin-api/red"),
   tunnelStart: () => post<TunnelInfo>("/admin-api/tunnel/start"),
   tunnelStop: () => post<TunnelInfo>("/admin-api/tunnel/stop"),
+  modulos: () => get<ModulosDto>("/admin-api/modulos"),
+  instalarModulo: (f: File) => sendFile<ModulosDto>(f, "/admin-api/modulos"),
+  quitarModulo: (archivo: string) => del<ModulosDto>(`/admin-api/modulos/${encodeURIComponent(archivo)}`),
 };

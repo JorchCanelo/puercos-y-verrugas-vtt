@@ -11,9 +11,13 @@ const serverEntry = packaged ? join(here, "app", "server", "index.js") : join(he
 const clientDir = packaged ? join(here, "app", "client") : join(here, "..", "client", "dist");
 // Datos: sin empaquetar (npm run desktop) se usan los mismos que `npm run play` (server/data), así se ve la misma mesa.
 // Instalada (npm run dist) no hay carpeta server/, así que van a %APPDATA%\Puercos y Verrugas VTT\data.
+// Carpeta fija con el nombre visible de la app (si no, Electron usaría el nombre del paquete, "@pyv/desktop").
+if (packaged) app.setPath("userData", join(app.getPath("appData"), "Puercos y Verrugas VTT"));
 const dataDir = packaged ? join(app.getPath("userData"), "data") : join(here, "..", "server", "data");
 
-if (!app.requestSingleInstanceLock()) app.quit();
+// Una sola instancia: una segunda ventana intentaría abrir los mismos puertos y la misma base de datos.
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) app.quit();
 
 let running = null;
 let win = null;
@@ -51,7 +55,7 @@ app.on("second-instance", () => {
   }
 });
 
-app.whenReady().then(() => boot().catch((e) => {
+app.whenReady().then(() => gotLock && boot().catch((e) => {
   dialog.showErrorBox("Puercos y Verrugas VTT", String(e?.stack ?? e));
   app.quit();
 }));

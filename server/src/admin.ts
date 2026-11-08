@@ -1,21 +1,22 @@
 // Listener LOCAL del anfitrión: solo 127.0.0.1. Gestiona Partidas, genera los tokens para entrar como Narrador
 // sin contraseña y controla el túnel. Nunca se expone por el túnel (este puerto no se comparte).
-import { rm } from "node:fs/promises";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 import { networkInterfaces } from "node:os";
 import { join } from "node:path";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyStatic from "@fastify/static";
 import type { FastifyInstance } from "fastify";
-import { CreatePartidaBody, PatchPartidaBody } from "@pyv/shared";
+import { CreatePartidaBody, PatchPartidaBody, type GameSystem } from "@pyv/shared";
 import type { HostTokens } from "./auth";
 import type { Ctx } from "./ctx";
-import { badRequest, conflict, forbidden, notFound } from "./errors";
+import { badRequest, conflict, forbidden, notFound, unprocessable } from "./errors";
 import { idParam, installErrors, installSecurity } from "./http";
 import { registerClient } from "./app";
 import * as svc from "./services";
 import { getPartidaRow } from "./repo";
 import type { TunnelManager } from "./tunnel";
 import { saveUpload } from "./uploads";
+import { PACKED_FILE_RE, incompatibility, moduleStatus, parsePacked, scanPacked, type LoadedPacked } from "./packed";
 
 export interface AdminDeps {
   clientDir: string | null;
@@ -27,6 +28,8 @@ export interface AdminDeps {
   devOrigins?: string[];
   /** Base de la URL para entrar como Narrador. Por defecto el puerto público local; en desarrollo, Vite. */
   entryBase?: string;
+  /** Módulos: los empaquetados (.pyvmod, con su carpeta) y los de código fuente (modules/). */
+  modulos?: { packed: LoadedPacked; source: readonly GameSystem<any>[] };
 }
 
 const isLoopback = (addr: string | undefined) => !!addr && (addr === "::1" || addr === "127.0.0.1" || addr === "::ffff:127.0.0.1");
@@ -34,7 +37,7 @@ const isLoopback = (addr: string | undefined) => !!addr && (addr === "::1" || ad
 export function registerAdminApp(app: FastifyInstance, ctx: Ctx, deps: AdminDeps): void {
   installSecurity(app);
   installErrors(app);
-  void app.register(fastifyMultipart, { limits: { files: 1, fields: 5, fileSize: 20 * 1024 * 1024 } });
+  void app.register(fastifyMultipart, { limits: { files: 1, fields: 5, fileSize: 20 * 1024 * 1024 } }); // imagen 10 MB, módulo 20 MB
   // Solo decora reply.sendFile() para la imagen de las Partidas (ver GET /admin-api/partidas/:id/imagen).
   void app.register(fastifyStatic, { root: join(ctx.dataDir, "partidas"), serve: false });
 
@@ -97,6 +100,43 @@ export function registerAdminApp(app: FastifyInstance, ctx: Ctx, deps: AdminDeps
     if (!svc.listPartidas(ctx).find((p) => p.id === id)?.activa) throw conflict("Abre la Partida antes de entrar");
     const token = deps.hostTokens.mint(id);
     return { url: `${deps.entryBase ?? `http://127.0.0.1:${deps.publicPort}`}/?hostToken=${encodeURIComponent(token)}` };
+  });
+
+  // --- módulos empaquetados (.pyvmod) ----------------------------------------------------
+  // Se cargan al arrancar: instalar, actualizar o quitar uno se aplica al reiniciar (el panel lo avisa).
+  const modulos = () => {
+    if (!deps.modulos) throw notFound("Gestión de módulos no disponible");
+    return deps.modulos;
+  };
+  app.get("/admin-api/modulos", () => moduleStatus(modulos().packed, modulos().source));
+
+  app.post("/admin-api/modulos", async (req) => {
+    const { packed, source } = modulos();
+    const part = await req.file();
+    if (!part) throw badRequest("Falta el archivo");
+    const buf = await part.toBuffer();
+    let m;
+    try {
+      m = parsePacked(buf);
+    } catch (e) {
+      throw badRequest((e as Error).message);
+    }
+    const incompatible = incompatibility(m);
+    if (incompatible) throw unprocessable(incompatible);
+    if (source.some((s) => s.id === m.id)) throw conflict(`"${m.nombre}" ya está instalado como código fuente en modules/`);
+    await mkdir(packed.dir, { recursive: true });
+    // Un solo archivo por módulo: instalar otra versión sustituye a la anterior.
+    for (const f of scanPacked(packed.dir)) if (f.modulo?.id === m.id) await rm(join(packed.dir, f.archivo), { force: true });
+    await writeFile(join(packed.dir, `${m.id}.pyvmod`), buf);
+    return moduleStatus(packed, source);
+  });
+
+  app.delete("/admin-api/modulos/:archivo", async (req) => {
+    const { packed, source } = modulos();
+    const archivo = (req.params as { archivo: string }).archivo;
+    if (!PACKED_FILE_RE.test(archivo) || !scanPacked(packed.dir).some((f) => f.archivo === archivo)) throw notFound("No existe ese archivo de módulo");
+    await rm(join(packed.dir, archivo), { force: true });
+    return moduleStatus(packed, source);
   });
 
   // Direcciones para jugar en red local (Wi-Fi/LAN). Windows pedirá permitir el puerto en el Firewall la primera vez.

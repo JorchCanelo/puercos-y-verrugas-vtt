@@ -114,6 +114,10 @@ export class Realtime implements Notifier {
     this.io.in(roomPartida(partidaId)).disconnectSockets(true);
   }
 
+  usuarioExpulsado(_partidaId: string, usuarioId: string): void {
+    this.io.in(roomUsuario(usuarioId)).disconnectSockets(true);
+  }
+
   close(): Promise<void> {
     return new Promise((resolve) => void this.io.close(() => resolve()));
   }

@@ -9,11 +9,13 @@ export interface Notifier {
   tirada(partidaId: string, t: TiradaDto): void;
   /** Público → toda la Partida; susurro → solo autor y destinatario. */
   mensaje(partidaId: string, m: MensajeDto): void;
-  /** `soloNarradores`: la ficha está oculta a los jugadores (ficha oculta o NPC oculto). */
+  /** `soloNarradores`: la ficha está oculta a los jugadores. */
   ficha(partidaId: string, f: FichaDto, soloNarradores: boolean): void;
   musica(partidaId: string, m: MusicDto & { serverNow: number }): void;
   /** La Partida se cerró: desconectar a todos. */
   partidaCerrada(partidaId: string): void;
+  /** Se borró el usuario o cambió su contraseña: desconectar sus sockets (su sesión ya no vale). */
+  usuarioExpulsado(partidaId: string, usuarioId: string): void;
 }
 
 export interface Ctx {

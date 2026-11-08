@@ -313,22 +313,22 @@ test("fichas: el jugador solo mueve las suyas, en la escena proyectada y si no e
   rejects(() => svc.moveFicha(ctx, ana, fb.id, { x: 0.3, y: 0.3 }), 403); // ficha de Beto
   rejects(() => svc.moveFicha(ctx, ana, fa2.id, { x: 0.3, y: 0.3 }), 403); // otra escena
   rejects(() => svc.moveFicha(ctx, ana, fa.id, { oculta: true }), 403); // solo el Narrador oculta
-  rejects(() => svc.deleteFicha(ctx, ana, fa.id), 403);
+  rejects(() => svc.deleteFicha(ctx, ana, fb.id), 403); // la de Beto no la quita (la suya sí: ver cycle7.test.ts)
 
   svc.moveFicha(ctx, narrador, fa.id, { oculta: true }); // oculta → ya no la puede mover
   rejects(() => svc.moveFicha(ctx, ana, fa.id, { x: 0.4, y: 0.4 }), 403);
 });
 
-test("snapshot de jugador: solo la escena proyectada y sus fichas visibles; NPC oculto oculta sus fichas", async () => {
+test("snapshot de jugador: solo la escena proyectada y sus fichas visibles; de los NPCs sin permiso, solo la ficha", async () => {
   const { ctx, rec } = makeCtx();
   const { narrador, ana } = await setup(ctx);
   const a = svc.createPj(ctx, ana, { sheet: testSheet() });
-  const dragon = svc.createNpc(ctx, narrador, { nombre: "Dragón", notas: "secreto", oculto: true });
-  const elfo = svc.createNpc(ctx, narrador, { nombre: "Gnomo", notas: "", oculto: false });
+  const dragon = svc.createNpc(ctx, narrador, { carpeta: "", nombre: "Dragón", notas: "secreto", acceso: [] });
+  const elfo = svc.createNpc(ctx, narrador, { carpeta: "", nombre: "Gnomo", notas: "también secreto", acceso: [] });
   const e1 = svc.createEscena(ctx, narrador, { nombre: "Bosque", tipo: "imagen", filas: 1, columnas: 1, abierta: true });
   const e2 = svc.createEscena(ctx, narrador, { nombre: "Mazmorra", tipo: "imagen", filas: 1, columnas: 1, abierta: true });
   svc.createFicha(ctx, narrador, e1.id, { ref: { tipo: "pj", id: a.id }, x: 0.1, y: 0.1, oculta: false });
-  const fd = svc.createFicha(ctx, narrador, e1.id, { ref: { tipo: "npc", id: dragon.id }, x: 0.5, y: 0.5, oculta: false });
+  const fd = svc.createFicha(ctx, narrador, e1.id, { ref: { tipo: "npc", id: dragon.id }, x: 0.5, y: 0.5, oculta: true });
   svc.createFicha(ctx, narrador, e1.id, { ref: { tipo: "npc", id: elfo.id }, x: 0.6, y: 0.6, oculta: false });
   svc.createFicha(ctx, narrador, e2.id, { ref: { tipo: "npc", id: elfo.id }, x: 0.6, y: 0.6, oculta: false });
 
@@ -340,11 +340,11 @@ test("snapshot de jugador: solo la escena proyectada y sus fichas visibles; NPC 
   svc.proyectarEscena(ctx, narrador, e1.id);
   snap = buildSnapshot(ctx, ana);
   assert.deepEqual(snap.escenas.map((e) => e.nombre), ["Bosque"]);
-  assert.deepEqual(snap.fichas.map((f) => f.nombre).sort(), ["Gnomo", "★ Lía"]); // sin Dragón
-  assert.deepEqual(snap.npcs.map((n) => n.nombre), ["Gnomo"]);
+  assert.deepEqual(snap.fichas.map((f) => f.nombre).sort(), ["Gnomo", "★ Lía"]); // sin el Dragón (ficha oculta)
+  assert.deepEqual(snap.npcs, [], "sin permiso no recibe los NPCs (ni sus notas): el Gnomo le llega solo como ficha");
   assert.equal(snap.escenaProyectadaId, e1.id);
 
-  // mover una ficha de NPC oculto solo se emite a Narradores
+  // mover una ficha oculta solo se emite a Narradores
   svc.moveFicha(ctx, narrador, fd.id, { x: 0.7, y: 0.7 });
   assert.equal(rec.fichas.at(-1)?.soloNarradores, true);
 
@@ -352,10 +352,11 @@ test("snapshot de jugador: solo la escena proyectada y sus fichas visibles; NPC 
   const n = buildSnapshot(ctx, narrador);
   assert.equal(n.escenas.length, 2);
   assert.equal(n.fichas.length, 4);
+  assert.equal(n.npcs.length, 2);
   assert.equal(n.playlists.length, 0);
 
-  // al revelar al NPC, aparece para los jugadores
-  svc.patchNpc(ctx, narrador, dragon.id, { oculto: false });
+  // al revelar su ficha, aparece para los jugadores
+  svc.moveFicha(ctx, narrador, fd.id, { oculta: false });
   assert.ok(buildSnapshot(ctx, ana).fichas.some((f) => f.nombre === "Dragón"));
 });
 
@@ -378,12 +379,12 @@ test("borrar PJ/NPC/escena limpia fichas y desproyecta", async () => {
 test("materiales: las Notas de grupo se ven por defecto; las del Narrador solo a quien se asigne", async () => {
   const { ctx } = makeCtx();
   const { narrador, ana, beto } = await setup(ctx);
-  const grupo = svc.createMaterial(ctx, ana, { tipo: "nota", titulo: "Mi diario", contenido: "hola", seccion: "grupo", acceso: [] });
+  const grupo = svc.createMaterial(ctx, ana, { carpeta: "", tipo: "nota", titulo: "Mi diario", contenido: "hola", seccion: "grupo", acceso: [] });
   assert.equal(grupo.visibleATodos, true);
-  rejects(() => svc.createMaterial(ctx, ana, { tipo: "nota", titulo: "x", contenido: "", seccion: "narrador", acceso: [] }), 403);
-  rejects(() => svc.createMaterial(ctx, ana, { tipo: "pdf", titulo: "x", contenido: "", seccion: "grupo", acceso: [] }), 422, /archivo/);
+  rejects(() => svc.createMaterial(ctx, ana, { carpeta: "", tipo: "nota", titulo: "x", contenido: "", seccion: "narrador", acceso: [] }), 403);
+  rejects(() => svc.createMaterial(ctx, ana, { carpeta: "", tipo: "pdf", titulo: "x", contenido: "", seccion: "grupo", acceso: [] }), 422, /archivo/);
 
-  const secreto = svc.createMaterial(ctx, narrador, { tipo: "nota", titulo: "Plan", contenido: "...", seccion: "narrador", acceso: [{ usuarioId: ana.id, nivel: "ver" }] });
+  const secreto = svc.createMaterial(ctx, narrador, { carpeta: "", tipo: "nota", titulo: "Plan", contenido: "...", seccion: "narrador", acceso: [{ usuarioId: ana.id, nivel: "observador" }] });
   assert.equal(secreto.visibleATodos, false);
   const titles = (a: typeof ana) => buildSnapshot(ctx, a).materiales.map((m) => m.titulo).sort();
   assert.deepEqual(titles(ana), ["Mi diario", "Plan"]);
@@ -394,14 +395,18 @@ test("materiales: las Notas de grupo se ven por defecto; las del Narrador solo a
   svc.patchMaterial(ctx, ana, grupo.id, { visibleATodos: false });
   assert.deepEqual(titles(beto), []);
   assert.deepEqual(titles(narrador), ["Mi diario", "Plan"]);
-  // o compartirla con Beto en modo edición
-  svc.patchMaterial(ctx, ana, grupo.id, { acceso: [{ usuarioId: beto.id, nivel: "editar" }] });
+  // o compartirla con Beto como observador: la ve, pero no la edita, ni la comparte, ni la borra
+  svc.patchMaterial(ctx, ana, grupo.id, { acceso: [{ usuarioId: beto.id, nivel: "observador" }] });
   assert.deepEqual(titles(beto), ["Mi diario"]);
-  assert.doesNotThrow(() => svc.patchMaterial(ctx, beto, grupo.id, { contenido: "editado por Beto" }));
-  rejects(() => svc.patchMaterial(ctx, beto, grupo.id, { visibleATodos: true }), 403); // no cambia accesos
+  rejects(() => svc.patchMaterial(ctx, beto, grupo.id, { contenido: "x" }), 403);
+  rejects(() => svc.patchMaterial(ctx, beto, grupo.id, { visibleATodos: true }), 403);
   rejects(() => svc.deleteMaterial(ctx, beto, grupo.id), 403);
+  // como propietario: edita, comparte (y podría borrarla)
+  svc.patchMaterial(ctx, ana, grupo.id, { acceso: [{ usuarioId: beto.id, nivel: "propietario" }] });
+  assert.doesNotThrow(() => svc.patchMaterial(ctx, beto, grupo.id, { contenido: "editado por Beto" }));
+  assert.doesNotThrow(() => svc.patchMaterial(ctx, beto, grupo.id, { visibleATodos: false }));
   rejects(() => svc.patchMaterial(ctx, beto, secreto.id, { contenido: "x" }), 404); // ni siquiera sabe que existe
-  rejects(() => svc.createMaterial(ctx, narrador, { tipo: "nota", titulo: "x", contenido: "", seccion: "narrador", acceso: [{ usuarioId: "fantasma", nivel: "ver" }] }), 422);
+  rejects(() => svc.createMaterial(ctx, narrador, { carpeta: "", tipo: "nota", titulo: "x", contenido: "", seccion: "narrador", acceso: [{ usuarioId: "fantasma", nivel: "observador" }] }), 422);
   svc.deleteMaterial(ctx, ana, grupo.id);
   assert.deepEqual(titles(narrador), ["Plan"]);
 });

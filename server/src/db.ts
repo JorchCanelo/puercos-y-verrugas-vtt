@@ -152,6 +152,21 @@ const MIGRATIONS: string[] = [
            json_object('nombre', nombre, 'descripcion', descripcion, 'tipo', tipo, 'curso', curso)
     FROM hechizos ORDER BY rowid;
   `,
+  // Ciclo 6: carpetas para organizar NPCs y materiales ('' = sin carpeta) y "generación" de sesión por usuario:
+  // al cambiarle la contraseña sube y las sesiones abiertas con la anterior dejan de valer.
+  /* sql */ `
+  ALTER TABLE npcs ADD COLUMN carpeta TEXT NOT NULL DEFAULT '';
+  ALTER TABLE materiales ADD COLUMN carpeta TEXT NOT NULL DEFAULT '';
+  ALTER TABLE usuarios ADD COLUMN sesion_gen INTEGER NOT NULL DEFAULT 0;
+  `,
+  // Ciclo 7: permisos de jugadores sobre NPCs (observador / propietario) en lugar de "NPC oculto". La ocultación pasa
+  // a ser solo por ficha: las fichas de los NPC que estaban ocultos se marcan ocultas para que nada cambie para los
+  // jugadores (npcs.oculto queda sin uso). Los niveles de los materiales se renombran: ver → observador, editar → propietario.
+  /* sql */ `
+  ALTER TABLE npcs ADD COLUMN acceso TEXT NOT NULL DEFAULT '[]';
+  UPDATE fichas SET oculta = 1 WHERE ref_tipo = 'npc' AND ref_id IN (SELECT id FROM npcs WHERE oculto = 1);
+  UPDATE materiales SET acceso = replace(replace(acceso, '"nivel":"ver"', '"nivel":"observador"'), '"nivel":"editar"', '"nivel":"propietario"');
+  `,
 ];
 
 /** Aplica las migraciones pendientes. `target` (solo pruebas) para en esa versión. */

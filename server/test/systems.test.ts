@@ -36,7 +36,7 @@ test("migración 3: Partidas antiguas → sistema heredado, catálogo copiado y 
   db.prepare("INSERT INTO hechizos (id, partida_id, nombre, descripcion, tipo, curso) VALUES ('h1', 'p1', 'Luz', 'Ilumina', 'Tipo A', 1)").run();
   db.prepare("INSERT INTO hechizos (id, partida_id, nombre, descripcion, tipo, curso) VALUES ('h2', 'p1', 'Atraer', '', 'Tipo A', 4)").run();
 
-  migrate(db);
+  migrate(db, 3);
   assert.equal(Number((db.prepare("PRAGMA user_version").get() as { user_version: number }).user_version), 3);
   assert.equal(db.prepare("SELECT sistema FROM partidas WHERE id = 'p1'").get()?.sistema, LEGACY_ID);
   assert.equal(db.prepare("SELECT sheet FROM pjs WHERE id = 'pj1'").get()?.sheet, sheetJson, "el JSON de la hoja no se toca");
