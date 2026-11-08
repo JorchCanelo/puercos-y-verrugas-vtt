@@ -5,6 +5,9 @@ release/
 desktop/app/
 *.log
 .env
+# Copias de datos de la mesa (pueden llevar contraseñas cifradas y archivos privados)
+*.pyvbak
+*.pyvbak.fallida
 *.tsbuildinfo
 CLAUDE.md
 # Módulos de sistema de juego: cada uno es su propio repositorio (ver modules/README.md).

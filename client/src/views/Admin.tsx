@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DEFAULT_SYSTEM_ID, type ModuloDto, type ModuloEstado, type ModulosDto, type PartidaDto, type SistemaInfoDto } from "@pyv/shared";
-import { admin, type NetworkInfo } from "../api";
+import { admin, type DatosInfo, type NetworkInfo } from "../api";
 import { run, useStore } from "../store";
 import { Button, Card, ConfirmButton, Empty, Field, Input, Select, Textarea, cx } from "../ui";
 import { copyText, remember } from "../util";
 
-export default function AdminView() {
+export default function AdminView({ onLogout }: { onLogout?: () => void }) {
   const [partidas, setPartidas] = useState<PartidaDto[] | null>(null);
   const [red, setRed] = useState<NetworkInfo | null>(null);
   const [sistemas, setSistemas] = useState<SistemaInfoDto[]>([]);
@@ -36,9 +36,19 @@ export default function AdminView() {
 
   return (
     <main className="mx-auto max-w-4xl space-y-6 px-4 py-8">
-      <header>
-        <h1 className="text-3xl text-gold">Puercos y Verrugas VTT · Anfitrión</h1>
-        <p className="text-muted">Crea Partidas, ábrelas para tus jugadores y entra como Narrador. Este panel solo existe en tu computadora.</p>
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-3xl text-gold">Puercos y Verrugas VTT · Anfitrión</h1>
+          <p className="text-muted">
+            Crea Partidas, ábrelas para tus jugadores y entra como Narrador.{" "}
+            {red?.servidor ? "Este panel está protegido con la contraseña del servidor." : "Este panel solo existe en tu computadora."}
+          </p>
+        </div>
+        {red?.servidor && onLogout && (
+          <Button variant="ghost" onClick={onLogout}>
+            Cerrar sesión
+          </Button>
+        )}
       </header>
 
       <NewPartida sistemas={sistemas} onCreated={load} />
@@ -52,7 +62,9 @@ export default function AdminView() {
         ))}
       </section>
 
-      <ModulesCard />
+      <ModulesCard servidor={!!red?.servidor} />
+
+      <DataCard />
 
       <ShareCard red={red} onChange={setRed} />
     </main>
@@ -186,7 +198,7 @@ const ESTADO: Record<ModuloEstado, { label: string; cls: string }> = {
 };
 
 /** Módulos de sistema de juego: los de modules/ (código fuente) y los paquetes .pyvmod, que se instalan aquí. */
-function ModulesCard() {
+function ModulesCard({ servidor }: { servidor: boolean }) {
   const [info, setInfo] = useState<ModulosDto | null>(null);
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -217,7 +229,9 @@ function ModulesCard() {
         </p>
         {info.reinicioPendiente && (
           <p className="rounded-md bg-gold/15 px-3 py-2 text-gold">
-            Hay cambios pendientes: cierra y vuelve a abrir el VTT (o reinicia <code>npm run play</code>) para aplicarlos. Hazlo cuando no haya nadie jugando.
+            {servidor
+              ? "Hay cambios pendientes: reinicia el servidor (en «Datos de la mesa») para aplicarlos. Hazlo cuando no haya nadie jugando."
+              : <>Hay cambios pendientes: cierra y vuelve a abrir el VTT (o reinicia <code>npm run play</code>) para aplicarlos. Hazlo cuando no haya nadie jugando.</>}
           </p>
         )}
         {info.modulos.length === 0 ? (
@@ -281,6 +295,21 @@ function ShareCard({ red, onChange }: { red: NetworkInfo | null; onChange: (r: N
   if (!red) return null;
   const t = red.tunnel;
   const copy = async (url: string) => toast((await copyText(url)) ? "Enlace copiado" : "No se pudo copiar", "ok");
+  if (red.servidor) {
+    const url = red.servidor.url;
+    return (
+      <Card title="Compartir con tus jugadores">
+        <div className="space-y-2 text-sm">
+          <p className="text-muted">Tus jugadores entran desde esta dirección, desde cualquier lugar:</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <code className="break-all rounded bg-night/70 px-2 py-1">{url}</code>
+            <Button small onClick={() => void copy(url)}>Copiar</Button>
+          </div>
+          <p className="text-xs text-muted">Este panel está en {url}/admin: no compartas esa dirección ni la contraseña.</p>
+        </div>
+      </Card>
+    );
+  }
   return (
     <Card title="Compartir con tus jugadores">
       <div className="space-y-4 text-sm">
@@ -316,6 +345,131 @@ function ShareCard({ red, onChange }: { red: NetworkInfo | null; onChange: (r: N
           )}
           <p className="mt-2 text-xs text-muted">La primera vez, Windows pedirá permitir el acceso en el Firewall: acepta solo para redes privadas.</p>
         </div>
+      </div>
+    </Card>
+  );
+}
+
+const MB = 1024 * 1024;
+const fmtBytes = (b: number) => (b >= 1024 * MB ? `${(b / 1024 / MB).toFixed(1)} GB` : `${Math.max(0.1, b / MB).toFixed(1)} MB`);
+const linkBtn = "inline-block rounded-md border border-line bg-panel-2 px-3 py-2 text-sm transition hover:border-gold-dim";
+
+/** Espacio usado, copia de los datos (descargar / restaurar) y, en modo servidor, reiniciar. */
+function DataCard() {
+  const [d, setD] = useState<DatosInfo | null>(null);
+  const [file, setFile] = useState<File | null>(null);
+  const [busy, setBusy] = useState<"subiendo" | "reiniciando" | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const toast = useStore((s) => s.toast);
+  useEffect(() => void run(() => admin.datos()).then((r) => r && setD(r)), []);
+  if (!d) return null;
+
+  const restore = async (f: File) => {
+    setBusy("subiendo");
+    const r = await run(() => admin.restaurar(f));
+    setBusy(null);
+    setFile(null);
+    if (r) {
+      setD(r);
+      toast("Copia lista: se aplicará al reiniciar", "ok");
+    }
+  };
+
+  const restart = async () => {
+    setBusy("reiniciando");
+    if (!(await run(() => admin.reiniciar()))) return setBusy(null);
+    // Espera a que el servidor vuelva y recarga el panel.
+    const started = Date.now();
+    await new Promise((r) => setTimeout(r, 2000));
+    for (;;) {
+      try {
+        await admin.ping();
+        return window.location.reload();
+      } catch {
+        if (Date.now() - started > 120_000) {
+          setBusy(null);
+          return toast("El servidor tarda en volver; recarga la página en un momento", "error");
+        }
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
+  };
+
+  return (
+    <Card title="Datos de la mesa">
+      <div className="space-y-4 text-sm">
+        <p className="text-muted">
+          Ocupan <span className="text-ink">{fmtBytes(d.bytes)}</span>
+          {d.libre !== null && <> · libres en el disco: <span className="text-ink">{fmtBytes(d.libre)}</span></>}.
+          {d.anterior > 0 && <> Incluye {fmtBytes(d.anterior)} de los datos de antes de la última restauración (carpeta <code>.anterior</code>; puedes borrarla a mano).</>}
+        </p>
+
+        <div className="space-y-2">
+          <h3 className="font-semibold">Copia de los datos</h3>
+          <p className="text-muted">
+            Un solo archivo (<code>.pyvbak</code>) con todas las Partidas, personajes, archivos subidos y módulos. Sirve de respaldo y para llevar
+            la mesa a otro lugar (de tu computadora a un servidor, o al revés).
+          </p>
+          <a className={linkBtn} href={admin.copiaUrl} download>
+            Descargar copia
+          </a>
+        </div>
+
+        <div className="space-y-2">
+          <h3 className="font-semibold">Restaurar una copia</h3>
+          <p className="text-muted">
+            Sustituye <strong>todos</strong> los datos de esta mesa por los de la copia. Se aplica al reiniciar; los datos actuales se guardan en la
+            carpeta <code>.anterior</code>.
+          </p>
+          {d.restauracionPendiente ? (
+            <div className="space-y-2 rounded-md bg-gold/15 px-3 py-2 text-gold">
+              <p>
+                Hay una copia lista para restaurar.{" "}
+                {d.puedeReiniciar ? "Reinicia el servidor para aplicarla." : "Cierra y vuelve a abrir el VTT (o reinicia npm run play) para aplicarla."}
+              </p>
+              <Button small variant="ghost" onClick={async () => { const r = await run(() => admin.cancelarRestauracion()); if (r) setD(r); }}>
+                Descartar la copia preparada
+              </Button>
+            </div>
+          ) : file ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="break-all">{file.name} · {fmtBytes(file.size)}</span>
+              <ConfirmButton variant="primary" disabled={busy !== null} message="Se sustituirá todo, ¿seguro?" onConfirm={() => void restore(file)}>
+                {busy === "subiendo" ? "Subiendo…" : "Preparar restauración"}
+              </ConfirmButton>
+              <Button variant="ghost" disabled={busy !== null} onClick={() => setFile(null)}>Cancelar</Button>
+            </div>
+          ) : (
+            <Button onClick={() => fileRef.current?.click()}>Elegir copia…</Button>
+          )}
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".pyvbak,application/gzip"
+            hidden
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (f) setFile(f);
+            }}
+          />
+          {d.servidor && (
+            <p className="text-xs text-muted">
+              Si la copia es muy grande para subirla por internet (Cloudflare admite hasta 100 MB por subida), ábrelo desde tu red local
+              (http://IP-del-servidor:3000/admin) o copia el archivo a la carpeta de datos del servidor con el nombre <code>restaurar.pyvbak</code> y reinicia.
+            </p>
+          )}
+        </div>
+
+        {d.puedeReiniciar && (
+          <div className="space-y-2">
+            <h3 className="font-semibold">Reiniciar el servidor</h3>
+            <p className="text-muted">Aplica módulos instalados y copias restauradas. Desconecta a todos unos segundos: hazlo cuando no haya nadie jugando.</p>
+            <ConfirmButton disabled={busy !== null} message="¿Reiniciar ahora?" onConfirm={() => void restart()}>
+              {busy === "reiniciando" ? "Reiniciando…" : "Reiniciar el servidor"}
+            </ConfirmButton>
+          </div>
+        )}
       </div>
     </Card>
   );

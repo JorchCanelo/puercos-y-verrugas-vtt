@@ -1,0 +1,16 @@
+# Lo que NO entra al construir la imagen.
+.git
+**/node_modules
+**/dist
+server/data
+data
+release
+desktop
+modules/*
+!modules/README.md
+deploy
+CLAUDE.md
+*.pyvbak
+*.log
+.env
+**/.env

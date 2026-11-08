@@ -5,15 +5,19 @@ import { useStore } from "./store";
 import { loadPackedModules } from "./systems/runtime";
 import { Toasts } from "./ui";
 import AdminView from "./views/Admin";
+import AdminLoginView from "./views/AdminLogin";
 import LoginView from "./views/Login";
 import MesaView from "./views/Mesa";
 
-type Mode = "checking" | "admin" | "login" | "mesa";
+type Mode = "checking" | "admin" | "adminLogin" | "login" | "mesa";
+
+const isAdminPath = () => window.location.pathname.replace(/\/+$/, "") === "/admin";
 
 /**
  * Un mismo cliente sirve a dos listeners:
  *  · puerto público  → jugadores (login) y Narrador anfitrión (entra con ?hostToken=…)
  *  · puerto local    → panel del anfitrión (/admin-api existe solo aquí)
+ * En MODO SERVIDOR hay un solo puerto: el panel del anfitrión está en /admin, tras una contraseña.
  */
 export default function App() {
   const [mode, setMode] = useState<Mode>("checking");
@@ -34,10 +38,19 @@ export default function App() {
           useStore.getState().toast(e instanceof ApiError ? e.message : "No se pudo entrar como anfitrión");
         }
       }
+      if (isAdminPath()) {
+        try {
+          const s = await admin.sesion();
+          return setMode(s.autenticado ? "admin" : "adminLogin");
+        } catch {
+          /* sin panel en esta dirección: seguir como siempre */
+        }
+      }
       if (await refresh()) return setMode("mesa");
       try {
-        await admin.ping();
-        return setMode("admin");
+        const p = await admin.ping();
+        // En modo servidor, la portada es para los jugadores aunque el navegador tenga sesión del panel.
+        return setMode(p.servidor && !isAdminPath() ? "login" : "admin");
       } catch {
         return setMode("login");
       }
@@ -68,7 +81,15 @@ export default function App() {
   return (
     <>
       {mode === "checking" && <p className="p-8 text-center text-muted">Cargando…</p>}
-      {mode === "admin" && <AdminView />}
+      {mode === "admin" && (
+        <AdminView
+          onLogout={async () => {
+            await admin.logout().catch(() => undefined);
+            setMode("adminLogin");
+          }}
+        />
+      )}
+      {mode === "adminLogin" && <AdminLoginView onLoggedIn={() => setMode("admin")} />}
       {mode === "login" && (
         <LoginView
           onLoggedIn={async () => {
