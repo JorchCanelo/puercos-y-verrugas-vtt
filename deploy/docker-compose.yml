@@ -12,10 +12,15 @@ services:
     environment:
       VTT_ADMIN_PASSWORD: ${VTT_ADMIN_PASSWORD:?Falta VTT_ADMIN_PASSWORD en el archivo .env}
       VTT_PUBLIC_URL: ${VTT_PUBLIC_URL:-}
+      # Solo se confía en las cabeceras con la IP real y el https cuando vienen del túnel (IP fija de abajo).
+      VTT_TRUST_PROXY: 172.30.0.10
     volumes:
       - ./datos:/data # base de datos, archivos subidos, módulos y copias: haz respaldos de esta carpeta
     ports:
       - "3000:3000" # acceso desde tu red local (http://IP-del-servidor:3000). Quítalo si no lo quieres.
+    networks:
+      pyv:
+        ipv4_address: 172.30.0.2
 
   tunel:
     image: cloudflare/cloudflared:latest
@@ -23,8 +28,15 @@ services:
     command: tunnel --no-autoupdate run
     environment:
       TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:?Falta CLOUDFLARE_TUNNEL_TOKEN en el archivo .env}
-    # Comparte la red de la mesa: en Cloudflare la ruta apunta a http://localhost:3000 y la mesa ve las
-    # conexiones del túnel como locales (así confía en las cabeceras con la IP real y el https).
-    network_mode: "service:mesa"
+    # En Cloudflare, la ruta del túnel apunta a http://mesa:3000 (el nombre del servicio de arriba).
+    networks:
+      pyv:
+        ipv4_address: 172.30.0.10
     depends_on:
       - mesa
+
+networks:
+  pyv:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24

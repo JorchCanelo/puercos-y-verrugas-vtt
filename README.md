@@ -95,7 +95,7 @@ Sin esas variables todo funciona exactamente como siempre.
 | `VTT_PUBLIC_URL` | Dirección pública, p. ej. `https://mesa.midominio.xyz` (enlace «Entrar como Narrador» y el que se muestra a los jugadores) |
 | `VTT_DATA_DIR` | Carpeta de datos (en la imagen Docker: `/data`) |
 | `VTT_PORT` o `PORT` | Puerto (por defecto 3000) |
-| `VTT_TRUST_PROXY` | En qué proxy confiar para la IP real y el https. Por defecto `loopback` (túnel en la misma máquina o red del contenedor). En plataformas tipo Railway/Render: `true` |
+| `VTT_TRUST_PROXY` | En qué proxy confiar para la IP real y el https. Por defecto `loopback` (túnel en la misma máquina). Con `deploy/docker-compose.yml` ya va fijada a la IP del contenedor del túnel. En plataformas tipo Railway/Render: `true` |
 | `VTT_RESTORE_MAX_MB` | Tamaño máximo de una copia subida para restaurar (por defecto 4096) |
 
 ### Con Docker y un túnel de Cloudflare (Raspberry Pi o cualquier equipo en casa)
@@ -109,7 +109,7 @@ solo cambias sus *nameservers* a los que te da Cloudflare).
    También puedes compilarla tú: `docker build -t pyv-vtt .`.
 2. **Túnel:** en Cloudflare, *Networking → Tunnels → Create a tunnel* (tipo *Cloudflared*). Copia el **token**
    (la cadena larga después de `--token`). En la pestaña de rutas añade una *Published application*: subdominio y
-   dominio a tu gusto y, como servicio, **`HTTP`** → **`localhost:3000`**.
+   dominio a tu gusto y, como *Service URL*, **`http://mesa:3000`** (con `http`, no `https`: el cifrado lo pone Cloudflare).
 3. **En el servidor:** copia la carpeta `deploy/` (`docker-compose.yml` y `.env.example`) y dentro:
    ```bash
    cp .env.example .env      # y rellena VTT_ADMIN_PASSWORD, VTT_PUBLIC_URL y CLOUDFLARE_TUNNEL_TOKEN
