@@ -73,6 +73,9 @@ export function registerPublicApp(app: FastifyInstance, ctx: Ctx, deps: PublicDe
     );
 
   // --- público / autenticación ---------------------------------------------------
+  /** Para comprobaciones de salud (Docker HEALTHCHECK, proxies, monitores). */
+  app.get("/api/health", () => ({ ok: true }));
+
   app.get("/api/public/partidas", () => svc.listPartidasActivas(ctx));
 
   app.get("/api/public/partidas/:id/imagen", (req, reply) => {

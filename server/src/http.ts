@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest } from "fastify";
 import { ZodError } from "zod";
 import { RuleError } from "@pyv/shared";
+import type { TrustProxy } from "./config";
 import type { ServerActor } from "./ctx";
 import { HttpError, unauthorized } from "./errors";
 
@@ -10,11 +11,13 @@ declare module "fastify" {
   }
 }
 
-export function createFastify(logger: boolean): FastifyInstance {
+export function createFastify(logger: boolean, trustProxy: TrustProxy = "loopback"): FastifyInstance {
   return Fastify({
     logger: logger ? { level: "info" } : false,
-    // Solo se confía en cabeceras X-Forwarded-* cuando vienen del túnel local (cloudflared conecta desde 127.0.0.1).
-    trustProxy: "loopback",
+    // Por defecto solo se confía en cabeceras X-Forwarded-* cuando vienen del túnel local (cloudflared conecta desde
+    // 127.0.0.1). En un servidor detrás de otro proxy se ajusta con VTT_TRUST_PROXY (ver config.ts).
+    // Fastify acepta un número de saltos en tiempo de ejecución, pero sus tipos no lo declaran.
+    trustProxy: trustProxy as boolean | string | string[],
     bodyLimit: 1024 * 1024,
     forceCloseConnections: true,
   });

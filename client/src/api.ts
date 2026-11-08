@@ -67,9 +67,44 @@ export interface NetworkInfo {
   publicPort: number;
   lan: string[];
   tunnel: TunnelInfo;
+  /** Modo servidor: la dirección pública de la mesa (no hay túnel ni red local). */
+  servidor?: { url: string } | null;
+}
+export interface DatosInfo {
+  bytes: number;
+  anterior: number;
+  libre: number | null;
+  total: number | null;
+  carpeta: string;
+  restauracionPendiente: boolean;
+  servidor: boolean;
+  puedeReiniciar: boolean;
+}
+
+/** Envía una copia de datos (.pyvbak) tal cual, sin multipart: el servidor la lee en streaming. */
+async function sendBackup(file: File): Promise<DatosInfo> {
+  const res = await fetch("/admin-api/copia/restaurar", {
+    method: "POST",
+    body: file,
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/octet-stream" },
+  });
+  if (!res.ok) {
+    let msg = res.status === 413 ? "La copia es demasiado grande para subirla por esta dirección" : "No se pudo subir la copia";
+    try {
+      msg = ((await res.json()) as { error?: string }).error ?? msg;
+    } catch {
+      /* sin JSON */
+    }
+    throw new ApiError(res.status, msg);
+  }
+  return (await res.json()) as DatosInfo;
 }
 export const admin = {
-  ping: () => get<{ ok: boolean; publicPort: number }>("/admin-api/ping"),
+  ping: () => get<{ ok: boolean; publicPort: number; servidor?: boolean }>("/admin-api/ping"),
+  sesion: () => get<{ servidor: boolean; autenticado: boolean }>("/admin-api/sesion"),
+  login: (password: string) => post<{ ok: true }>("/admin-api/login", { password }),
+  logout: () => post<{ ok: true }>("/admin-api/logout"),
   partidas: () => get<PartidaDto[]>("/admin-api/partidas"),
   sistemas: () => get<SistemaInfoDto[]>("/admin-api/sistemas"),
   crear: (b: { nombre: string; descripcion: string; anfitrionNombre: string; sistema?: string }) => post<PartidaDto>("/admin-api/partidas", b),
@@ -85,4 +120,10 @@ export const admin = {
   modulos: () => get<ModulosDto>("/admin-api/modulos"),
   instalarModulo: (f: File) => sendFile<ModulosDto>(f, "/admin-api/modulos"),
   quitarModulo: (archivo: string) => del<ModulosDto>(`/admin-api/modulos/${encodeURIComponent(archivo)}`),
+  datos: () => get<DatosInfo>("/admin-api/datos"),
+  /** Descarga directa (enlace): el navegador guarda el archivo. */
+  copiaUrl: "/admin-api/copia",
+  restaurar: sendBackup,
+  cancelarRestauracion: () => del<DatosInfo>("/admin-api/copia/restaurar"),
+  reiniciar: () => post<{ ok: true }>("/admin-api/reiniciar"),
 };

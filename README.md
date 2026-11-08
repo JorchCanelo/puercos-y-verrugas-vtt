@@ -74,6 +74,72 @@ electron-builder descarga NSIS y otras herramientas, así que tarda más.
   `npm run dist`, activa el Modo de desarrollador de Windows (Configuración → Para programadores) o ejecuta la terminal
   como administrador una vez.
 
+## Servidor en internet
+La cuarta forma de usar el VTT (además de `npm run play`, la app de escritorio y el instalador): la mesa **siempre
+encendida** en un servidor, con tu propio dominio. Sirve cualquier máquina que ejecute Docker: una Raspberry Pi en
+casa (3, 4 o 5 con sistema de **64 bits**), un mini PC, un VPS o una plataforma de hosting.
+
+**Qué cambia en modo servidor** (se activa al definir `VTT_ADMIN_PASSWORD`):
+- Un solo puerto (3000). Los jugadores entran por `https://tu-dominio/` y el panel del anfitrión está en
+  `https://tu-dominio/admin`, protegido con la contraseña (cookie propia de 12 h, límite de intentos por IP).
+- El túnel rápido del panel se oculta: la dirección del servidor cumple esa función.
+- En «Datos de la mesa» del panel: espacio usado, **descargar copia**, **restaurar copia** y **reiniciar el servidor**
+  (para aplicar módulos y restauraciones; Docker lo vuelve a arrancar solo).
+
+Sin esas variables todo funciona exactamente como siempre.
+
+### Variables de entorno
+| Variable | Qué hace |
+|---|---|
+| `VTT_ADMIN_PASSWORD` | Activa el modo servidor; contraseña del panel en `/admin` (mínimo 8 caracteres). Cambiarla cierra las sesiones abiertas del panel |
+| `VTT_PUBLIC_URL` | Dirección pública, p. ej. `https://mesa.midominio.xyz` (enlace «Entrar como Narrador» y el que se muestra a los jugadores) |
+| `VTT_DATA_DIR` | Carpeta de datos (en la imagen Docker: `/data`) |
+| `VTT_PORT` o `PORT` | Puerto (por defecto 3000) |
+| `VTT_TRUST_PROXY` | En qué proxy confiar para la IP real y el https. Por defecto `loopback` (túnel en la misma máquina o red del contenedor). En plataformas tipo Railway/Render: `true` |
+| `VTT_RESTORE_MAX_MB` | Tamaño máximo de una copia subida para restaurar (por defecto 4096) |
+
+### Con Docker y un túnel de Cloudflare (Raspberry Pi o cualquier equipo en casa)
+El túnel publica la mesa en tu dominio **sin abrir puertos** en el router y funciona aunque tu proveedor de internet
+use CGNAT. Necesitas un dominio cuyo DNS gestione Cloudflare (plan Free: el dominio sigue registrado donde lo compraste;
+solo cambias sus *nameservers* a los que te da Cloudflare).
+
+1. **Imagen:** este repositorio publica `ghcr.io/jorchcanelo/puercos-y-verrugas-vtt` (amd64 y arm64) con GitHub Actions
+   en cada cambio de `main`. Para tu propio fork, copia `deploy/docker-publish.yml` a `.github/workflows/` y, tras la
+   primera publicación, haz pública la imagen en GitHub (*Packages → la imagen → Package settings → Change visibility*).
+   También puedes compilarla tú: `docker build -t pyv-vtt .`.
+2. **Túnel:** en Cloudflare, *Networking → Tunnels → Create a tunnel* (tipo *Cloudflared*). Copia el **token**
+   (la cadena larga después de `--token`). En la pestaña de rutas añade una *Published application*: subdominio y
+   dominio a tu gusto y, como servicio, **`HTTP`** → **`localhost:3000`**.
+3. **En el servidor:** copia la carpeta `deploy/` (`docker-compose.yml` y `.env.example`) y dentro:
+   ```bash
+   cp .env.example .env      # y rellena VTT_ADMIN_PASSWORD, VTT_PUBLIC_URL y CLOUDFLARE_TUNNEL_TOKEN
+   mkdir -p datos            # créala tú: si la crea Docker, será de root y la mesa no podrá escribir
+   docker compose up -d
+   docker compose logs -f mesa
+   ```
+4. Abre `https://tu-dominio/admin`, entra con la contraseña y crea o restaura tu mesa.
+
+**Actualizar:** `docker compose pull && docker compose up -d`. **Respaldo:** «Descargar copia» en el panel, o copia
+la carpeta `datos/` con la mesa detenida.
+
+### Llevar una mesa de tu PC al servidor
+1. En el panel local (`npm run play` → http://127.0.0.1:3001) pulsa **Descargar copia** (`.pyvbak`).
+2. En el panel del servidor, **Restaurar una copia** → elige el archivo → **Reiniciar el servidor**.
+
+Cloudflare acepta subidas de hasta 100 MB. Si tu copia pesa más, abre el panel desde tu red local
+(`http://IP-del-servidor:3000/admin`) o copia el archivo a la carpeta de datos con el nombre `restaurar.pyvbak`
+(p. ej. `scp copia.pyvbak usuario@servidor:~/pyv/datos/restaurar.pyvbak`) y reinicia: se aplica al arrancar.
+Al restaurar, los datos que había quedan en `datos/.anterior/`.
+
+> No hay sincronización entre copias: si juegas en tu PC y en el servidor, son dos mesas distintas.
+
+### Avisos
+- El servidor queda expuesto en internet de forma permanente: usa una contraseña de panel larga y única, y mantén
+  la imagen actualizada.
+- La música y los archivos se descargan desde tu servidor: con conexión doméstica, lo que limita es tu velocidad de **subida**.
+- Raspberry Pi: usa una fuente de alimentación adecuada y una microSD de resistencia («High Endurance») o un SSD por USB,
+  y descarga copias con frecuencia.
+
 ## Módulos de sistema de juego
 Un módulo aporta las reglas de un juego: hoja, creación de personajes, movimientos, progreso, catálogo…
 
@@ -118,7 +184,7 @@ Cómo escribir uno y cómo empaquetarlo como `.pyvmod` (`npm run pack-module -- 
 
 ## Arquitectura
 - `shared/`: interfaz de sistema de juego (`GameSystem`), sistema genérico, permisos, esquemas zod y tipos compartidos.
-- `server/`: Fastify + Socket.IO + SQLite (node:sqlite). Dos puertos: público `3000` (jugadores) y local `3001` (solo 127.0.0.1, anfitrión).
+- `server/`: Fastify + Socket.IO + SQLite (node:sqlite). Dos puertos: público `3000` (jugadores) y local `3001` (solo 127.0.0.1, anfitrión); en modo servidor, uno solo con el panel en `/admin`.
 - `client/`: React + Vite + Tailwind v4 + zustand + Konva. Los módulos usan solo lo que expone `client/src/sdk.ts`.
 - `modules/`: sistemas de juego instalados. `scripts/modules.mjs` los detecta y genera los registros que cargan servidor y cliente.
 - `desktop/`: envoltorio Electron.
@@ -132,15 +198,15 @@ Cómo escribir uno y cómo empaquetarlo como `.pyvmod` (`npm run pack-module -- 
 
 ## Seguridad
 - Contraseñas con scrypt; sesión en cookie firmada (HMAC).
-- El Narrador anfitrión entra sin contraseña solo mediante un token de un solo uso emitido por el puerto local.
+- El Narrador anfitrión entra sin contraseña solo mediante un token de un solo uso emitido por el panel (puerto local, o `/admin` con contraseña en modo servidor).
 - Las tiradas se resuelven en el servidor.
-- Tus datos (`data/`: base de datos y archivos subidos) están en `.gitignore`. Para copiarlos a otra carpeta o PC, copia `server/data/` entera.
+- Tus datos (`data/`: base de datos y archivos subidos) están en `.gitignore`. Para llevarlos a otra carpeta, PC o servidor usa «Descargar copia» / «Restaurar una copia» del panel (o copia `server/data/` entera con el VTT cerrado).
 
 ## Estado de verificación (honesto)
 - **Pruebas automáticas:** `shared` y la capa de servicios/autenticación/subidas y los módulos empaquetados del servidor (sobre node:sqlite, el mismo motor que usa el servidor), con un sistema de juego de prueba. El zoom/desplazamiento del tablero se probó en Chromium con ratón y toques simulados. La CI corre typecheck, pruebas y compilación en Windows y Linux.
 - **Probado a mano:** una sesión real con 2 Narradores y 3 jugadores (incluida la música sincronizada), la app de escritorio (`npm run desktop`), el instalador (`npm run dist`) y la instalación de un módulo `.pyvmod` desde el panel en la versión instalada.
 - **Sin pruebas automáticas:** capa HTTP/Socket.IO, la mayor parte del cliente, Electron y el túnel de cloudflared.
-- **Nunca probado:** el túnel de cloudflared.
+- **Nunca probado:** el túnel rápido de cloudflared. El modo servidor (Docker, túnel con nombre, copia y restauración) tiene pruebas automáticas de configuración, sesión del panel y copias; el despliegue real está pendiente de probar.
 
 ## Versiones mínimas por seguridad
 Fijadas tras `npm audit` (los `^` en los `package.json` ya impiden bajar de estas):
