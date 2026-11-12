@@ -204,9 +204,9 @@ Cómo escribir uno y cómo empaquetarlo como `.pyvmod` (`npm run pack-module -- 
 
 ## Estado de verificación (honesto)
 - **Pruebas automáticas:** `shared` y la capa de servicios/autenticación/subidas y los módulos empaquetados del servidor (sobre node:sqlite, el mismo motor que usa el servidor), con un sistema de juego de prueba. El zoom/desplazamiento del tablero se probó en Chromium con ratón y toques simulados. La CI corre typecheck, pruebas y compilación en Windows y Linux.
-- **Probado a mano:** una sesión real con 2 Narradores y 3 jugadores (incluida la música sincronizada), la app de escritorio (`npm run desktop`), el instalador (`npm run dist`) y la instalación de un módulo `.pyvmod` desde el panel en la versión instalada.
+- **Probado a mano:** una sesión real con 2 Narradores y 3 jugadores (incluida la música sincronizada), la app de escritorio (`npm run desktop`), el instalador (`npm run dist`), la instalación de un módulo `.pyvmod` desde el panel en la versión instalada y el modo servidor completo (imagen Docker en una Raspberry Pi, túnel de Cloudflare con dominio propio, panel en `/admin`, copia y restauración de datos).
 - **Sin pruebas automáticas:** capa HTTP/Socket.IO, la mayor parte del cliente, Electron y el túnel de cloudflared.
-- **Nunca probado:** el túnel rápido de cloudflared. El modo servidor (Docker, túnel con nombre, copia y restauración) tiene pruebas automáticas de configuración, sesión del panel y copias; el despliegue real está pendiente de probar.
+- **Nunca probado:** el túnel rápido de cloudflared del panel local.
 
 ## Versiones mínimas por seguridad
 Fijadas tras `npm audit` (los `^` en los `package.json` ya impiden bajar de estas):
